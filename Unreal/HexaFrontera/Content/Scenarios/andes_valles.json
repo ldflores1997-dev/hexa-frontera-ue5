@@ -1,0 +1,43 @@
+{
+  "id": "andes_valles",
+  "name": "Andes y valles",
+  "description": "Quebradas, viñedos y salares bajo las cumbres. Las heladas castigan regiones enteras.",
+  "radius": 3,
+  "prestige_to_win": 16,
+  "resources": [
+    {"id": "cobre", "name": "Cobre", "color": "#c46a32"},
+    {"id": "lana", "name": "Lana", "color": "#efe6d2"},
+    {"id": "uva", "name": "Uva", "color": "#6b2a5a"},
+    {"id": "maiz", "name": "Maíz", "color": "#f0c23a"},
+    {"id": "sal", "name": "Sal", "color": "#f4f4f4"}
+  ],
+  "terrains": [
+    {"id": "mina", "name": "Mina de cobre", "resource": "cobre", "count": 7, "color": "#7d5a46", "height": 0.42, "decoration": "rocks"},
+    {"id": "puna", "name": "Puna", "resource": "lana", "count": 8, "color": "#b8a46a", "height": 0.32, "decoration": "grass"},
+    {"id": "vinedo", "name": "Viñedo", "resource": "uva", "count": 7, "color": "#5c7a32", "height": 0.15, "decoration": "vines"},
+    {"id": "valle", "name": "Valle de maíz", "resource": "maiz", "count": 8, "color": "#8faa3c", "height": 0.10, "decoration": "crops"},
+    {"id": "salar", "name": "Salar", "resource": "sal", "count": 6, "color": "#e9e6df", "height": 0.06, "decoration": "salt"},
+    {"id": "nevado", "name": "Nevado", "count": 1, "color": "#f6f8fb", "height": 0.85, "decoration": "mountain"}
+  ],
+  "pieces": {
+    "outpost": {"name": "Posada", "cost": {"lana": 1, "maiz": 1, "cobre": 1, "uva": 1}, "limit": 6, "prestige": 1},
+    "route": {"name": "Camino de cornisa", "cost": {"cobre": 1, "sal": 1}, "limit": 18},
+    "center": {"name": "Pueblo", "cost": {"uva": 2, "maiz": 2, "sal": 1}, "limit": 4, "prestige": 2}
+  },
+  "event": {
+    "type": "frost", "name": "Helada",
+    "description": "Una casilla y sus vecinas producen la mitad durante la ronda.",
+    "cards": 4, "tiles": 1, "duration": 1
+  },
+  "contracts": [
+    {"id": "caminos_inca", "name": "Caminos de altura (8 caminos)", "type": "routes", "value": 8, "prestige": 2},
+    {"id": "bodeguero", "name": "Bodeguero (3 viñedos)", "type": "terrain_reach", "terrain": "vinedo", "value": 3, "prestige": 2},
+    {"id": "feria", "name": "Feria del valle (5 recursos)", "type": "diversity", "value": 5, "prestige": 3},
+    {"id": "tres_pueblos", "name": "Tres pueblos", "type": "centers", "value": 3, "prestige": 2}
+  ],
+  "environment": {
+    "sun_color": "#fff6e8", "sun_elevation": 50, "sun_intensity": 10,
+    "sky_tint": "#6fa8ff", "fog_color": "#c7d7ea", "fog_density": 0.01,
+    "ground": "grass", "ground_color": "#5b6b3a", "clouds": true
+  }
+}

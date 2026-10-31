@@ -1,0 +1,41 @@
+{
+  "id": "colonia_marte",
+  "name": "Colonia en Marte",
+  "description": "Cráteres helados, paneles solares y tormentas de polvo que dejan zonas a oscuras.",
+  "radius": 2,
+  "prestige_to_win": 15,
+  "resources": [
+    {"id": "hielo", "name": "Hielo", "color": "#d8f0ff"},
+    {"id": "mineral", "name": "Mineral", "color": "#8a5a44"},
+    {"id": "energia", "name": "Energía", "color": "#ffcf3a"},
+    {"id": "oxigeno", "name": "Oxígeno", "color": "#7fd6c8"}
+  ],
+  "terrains": [
+    {"id": "casquete", "name": "Casquete de hielo", "resource": "hielo", "count": 5, "color": "#cfd8dc", "height": 0.15, "decoration": "crystals"},
+    {"id": "regolito", "name": "Regolito", "resource": "mineral", "count": 5, "color": "#a0522d", "height": 0.22, "decoration": "rocks"},
+    {"id": "campo_solar", "name": "Campo solar", "resource": "energia", "count": 4, "color": "#c1663a", "height": 0.12, "decoration": "panels"},
+    {"id": "planta_oxigeno", "name": "Planta de oxígeno", "resource": "oxigeno", "count": 4, "color": "#9c5b3e", "height": 0.18, "decoration": "domes"},
+    {"id": "crater", "name": "Cráter de impacto", "count": 1, "color": "#5e2c1a", "height": 0.05, "decoration": "crater"}
+  ],
+  "pieces": {
+    "outpost": {"name": "Domo", "cost": {"hielo": 1, "mineral": 1, "oxigeno": 1, "energia": 1}, "limit": 5, "prestige": 1},
+    "route": {"name": "Túnel", "cost": {"mineral": 1, "energia": 1}, "limit": 15},
+    "center": {"name": "Hábitat", "cost": {"energia": 3, "oxigeno": 2}, "limit": 4, "prestige": 2}
+  },
+  "event": {
+    "type": "dust_storm", "name": "Tormenta de polvo",
+    "description": "Tres casillas quedan cubiertas de polvo y no producen durante 2 rondas.",
+    "cards": 3, "tiles": 3, "duration": 2
+  },
+  "contracts": [
+    {"id": "red_tuneles", "name": "Red de túneles (6 túneles)", "type": "routes", "value": 6, "prestige": 2},
+    {"id": "reservas_agua", "name": "Reservas de agua (3 casquetes)", "type": "terrain_reach", "terrain": "casquete", "value": 3, "prestige": 2},
+    {"id": "autosuficiente", "name": "Colonia autosuficiente (4 recursos)", "type": "diversity", "value": 4, "prestige": 2},
+    {"id": "tres_habitats", "name": "Tres hábitats", "type": "centers", "value": 3, "prestige": 2}
+  ],
+  "environment": {
+    "sun_color": "#ffd2a8", "sun_elevation": 25, "sun_intensity": 6,
+    "sky_tint": "#d89a6a", "fog_color": "#c98a5a", "fog_density": 0.04,
+    "ground": "sand", "ground_color": "#8c4a2a", "clouds": false
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "islas_volcanicas",
+  "name": "Islas volcánicas",
+  "description": "Un archipiélago vivo: los volcanes cambian el mapa en cada erupción.",
+  "radius": 2,
+  "prestige_to_win": 15,
+  "resources": [
+    {"id": "obsidiana", "name": "Obsidiana", "color": "#2e2b33"},
+    {"id": "coral", "name": "Coral", "color": "#f07c6c"},
+    {"id": "palma", "name": "Palma", "color": "#7a9a3a"},
+    {"id": "azufre", "name": "Azufre", "color": "#e8d03a"}
+  ],
+  "terrains": [
+    {"id": "campo_obsidiana", "name": "Campo de obsidiana", "resource": "obsidiana", "count": 4, "color": "#3a363f", "height": 0.30, "decoration": "rocks"},
+    {"id": "arrecife", "name": "Arrecife", "resource": "coral", "count": 5, "color": "#3fb7b0", "height": 0.08, "decoration": "coral"},
+    {"id": "palmar", "name": "Palmar", "resource": "palma", "count": 5, "color": "#5f8f3e", "height": 0.18, "decoration": "trees"},
+    {"id": "fumarola", "name": "Fumarola", "resource": "azufre", "count": 4, "color": "#b9a34a", "height": 0.25, "decoration": "crystals"},
+    {"id": "crater", "name": "Cráter activo", "count": 1, "color": "#7a2a14", "height": 0.55, "decoration": "volcano"}
+  ],
+  "pieces": {
+    "outpost": {"name": "Faro", "cost": {"palma": 1, "coral": 1, "azufre": 1, "obsidiana": 1}, "limit": 5, "prestige": 1},
+    "route": {"name": "Pasarela", "cost": {"palma": 1, "coral": 1}, "limit": 15},
+    "center": {"name": "Puerto", "cost": {"obsidiana": 3, "azufre": 2}, "limit": 4, "prestige": 2}
+  },
+  "event": {
+    "type": "lava", "name": "Erupción",
+    "description": "La lava cubre una casilla, la convierte en campo de obsidiana y quema las pasarelas que la tocan.",
+    "terrain": "campo_obsidiana", "cards": 3, "tiles": 1
+  },
+  "contracts": [
+    {"id": "red_pasarelas", "name": "Red de pasarelas (6 pasarelas)", "type": "routes", "value": 6, "prestige": 2},
+    {"id": "guardian_arrecife", "name": "Guardián del arrecife (3 arrecifes)", "type": "terrain_reach", "terrain": "arrecife", "value": 3, "prestige": 2},
+    {"id": "comerciante_islas", "name": "Comerciante de las islas (4 recursos)", "type": "diversity", "value": 4, "prestige": 2},
+    {"id": "tres_puertos", "name": "Tres puertos", "type": "centers", "value": 3, "prestige": 2}
+  ],
+  "environment": {
+    "sun_color": "#fff1d6", "sun_elevation": 38, "sun_intensity": 9,
+    "sky_tint": "#9ccfff", "fog_color": "#b8d8e8", "fog_density": 0.015,
+    "ground": "water", "ground_color": "#1d6f8a", "clouds": true
+  }
+}

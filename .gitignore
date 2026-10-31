@@ -1,0 +1,20 @@
+# Unreal
+Unreal/HexaFrontera/Binaries/
+Unreal/HexaFrontera/Intermediate/
+Unreal/HexaFrontera/Saved/
+Unreal/HexaFrontera/DerivedDataCache/
+Unreal/HexaFrontera/.vs/
+Unreal/HexaFrontera/*.sln
+Unreal/HexaFrontera/.vsconfig
+*.VC.db
+*.opensdf
+*.sdf
+*.suo
+
+# Tests del núcleo
+build/
+CoreTests/build/
+
+# Exportaciones de Blender
+Tools/blender/out/
+*.blend1

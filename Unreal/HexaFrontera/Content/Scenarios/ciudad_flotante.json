@@ -1,0 +1,41 @@
+{
+  "id": "ciudad_flotante",
+  "name": "Ciudad flotante",
+  "description": "Plataformas de latón entre las nubes. A veces una se desacopla y cambia de lugar.",
+  "radius": 2,
+  "prestige_to_win": 15,
+  "resources": [
+    {"id": "vapor", "name": "Vapor", "color": "#e6eef2"},
+    {"id": "laton", "name": "Latón", "color": "#c9a24a"},
+    {"id": "carbon", "name": "Carbón", "color": "#2a2a2a"},
+    {"id": "seda", "name": "Seda", "color": "#c04a6a"}
+  ],
+  "terrains": [
+    {"id": "caldera", "name": "Caldera", "resource": "vapor", "count": 5, "color": "#8d8f93", "height": 0.25, "decoration": "chimneys"},
+    {"id": "fundicion", "name": "Fundición", "resource": "laton", "count": 4, "color": "#9a7432", "height": 0.30, "decoration": "gears"},
+    {"id": "carbonera", "name": "Carbonera", "resource": "carbon", "count": 5, "color": "#3b3b3e", "height": 0.20, "decoration": "rocks"},
+    {"id": "telar", "name": "Telar", "resource": "seda", "count": 4, "color": "#7a3a52", "height": 0.18, "decoration": "banners"},
+    {"id": "nucleo", "name": "Núcleo de levitación", "count": 1, "color": "#4ac0d8", "height": 0.45, "decoration": "crystals"}
+  ],
+  "pieces": {
+    "outpost": {"name": "Muelle aéreo", "cost": {"vapor": 1, "laton": 1, "seda": 1, "carbon": 1}, "limit": 5, "prestige": 1},
+    "route": {"name": "Puente", "cost": {"laton": 1, "carbon": 1}, "limit": 15},
+    "center": {"name": "Torre", "cost": {"carbon": 3, "vapor": 2}, "limit": 4, "prestige": 2}
+  },
+  "event": {
+    "type": "platform_swap", "name": "Desacople",
+    "description": "Dos plataformas se sueltan e intercambian su lugar.",
+    "cards": 4, "tiles": 1
+  },
+  "contracts": [
+    {"id": "red_puentes", "name": "Red de puentes (6 puentes)", "type": "routes", "value": 6, "prestige": 2},
+    {"id": "magnate", "name": "Magnate (10 monedas)", "type": "coins", "value": 10, "prestige": 2},
+    {"id": "gremios", "name": "Todos los gremios (4 recursos)", "type": "diversity", "value": 4, "prestige": 2},
+    {"id": "tres_torres", "name": "Tres torres", "type": "centers", "value": 3, "prestige": 2}
+  ],
+  "environment": {
+    "sun_color": "#ffe4c0", "sun_elevation": 18, "sun_intensity": 8,
+    "sky_tint": "#f2b48a", "fog_color": "#f0d6c0", "fog_density": 0.03,
+    "ground": "clouds", "ground_color": "#f4f1ee", "clouds": true
+  }
+}
