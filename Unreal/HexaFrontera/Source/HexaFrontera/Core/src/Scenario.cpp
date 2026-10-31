@@ -18,6 +18,24 @@ int Scenario::FindTerrain(const std::string& terrainId) const {
     return -1;
 }
 
+std::vector<int> Scenario::ProducingTerrains() const {
+    std::vector<int> result;
+    for (size_t i = 0; i < terrains.size(); ++i) {
+        if (terrains[i].resource >= 0 && terrains[i].count > 0) result.push_back(static_cast<int>(i));
+    }
+    return result;
+}
+
+int Scenario::FacesShowingTerrain(int terrain) const {
+    int total = 0;
+    for (const auto& die : dice) {
+        for (const DieFace& face : die) {
+            if (face.kind == DieFaceKind::Terrain && face.terrain == terrain) ++total;
+        }
+    }
+    return total;
+}
+
 namespace {
 
 int HexDigit(char c) {
@@ -91,6 +109,54 @@ bool ParseContractKind(const std::string& text, ContractKind& out) {
     if (text == "diversity") { out = ContractKind::Diversity; return true; }
     if (text == "coins") { out = ContractKind::Coins; return true; }
     return false;
+}
+
+// Dados por defecto. Dado de terreno: los terrenos productivos y la cara de evento en la última;
+// las caras que sobran son comodines. Dado de región: los terrenos productivos y comodines en las
+// caras que sobran (con 6 terrenos o más, arranca donde terminó el primer dado y la última cara
+// queda de comodín, así todos los terrenos aparecen en algún dado).
+void BuildDefaultDice(Scenario& scenario) {
+    const std::vector<int> producing = scenario.ProducingTerrains();
+    const size_t count = producing.size();
+    const size_t terrainFaces = static_cast<size_t>(kDieFaces - 1);
+    for (size_t face = 0; face < terrainFaces; ++face) {
+        scenario.dice[0][face] = face < count ? DieFace{DieFaceKind::Terrain, producing[face]} : DieFace{DieFaceKind::Wild, -1};
+    }
+    scenario.dice[0][terrainFaces] = {DieFaceKind::Event, -1};
+    const size_t offset = count > terrainFaces ? terrainFaces : 0;
+    for (size_t face = 0; face < static_cast<size_t>(kDieFaces); ++face) {
+        const bool lastFace = face == static_cast<size_t>(kDieFaces - 1);
+        if (face < count && !(lastFace && count >= static_cast<size_t>(kDieFaces))) {
+            scenario.dice[1][face] = {DieFaceKind::Terrain, producing[(face + offset) % count]};
+        } else {
+            scenario.dice[1][face] = {DieFaceKind::Wild, -1};
+        }
+    }
+}
+
+bool ReadDie(const Scenario& scenario, const JsonValue* faces, DieFace* die, std::string& error, const char* name) {
+    if (!faces || !faces->IsArray() || faces->items.size() != static_cast<size_t>(kDieFaces)) {
+        error = std::string("'dice.") + name + "' debe ser una lista de 6 caras";
+        return false;
+    }
+    for (int face = 0; face < kDieFaces; ++face) {
+        const JsonValue& item = faces->items[static_cast<size_t>(face)];
+        if (!item.IsString()) {
+            error = std::string("'dice.") + name + "': cada cara es un id de terreno, \"event\" o \"wild\"";
+            return false;
+        }
+        if (item.str == "event") die[face] = {DieFaceKind::Event, -1};
+        else if (item.str == "wild") die[face] = {DieFaceKind::Wild, -1};
+        else {
+            const int terrain = scenario.FindTerrain(item.str);
+            if (terrain < 0 || scenario.terrains[static_cast<size_t>(terrain)].resource < 0) {
+                error = std::string("'dice.") + name + "': '" + item.str + "' no es un terreno que produzca";
+                return false;
+            }
+            die[face] = {DieFaceKind::Terrain, terrain};
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -196,7 +262,7 @@ bool LoadScenarioFromJson(const std::string& text, Scenario& out, std::string& e
         return false;
     }
     const char* pieceKeys[kPieceKindCount] = {"outpost", "route", "center", "work"};
-    const int defaultLimits[kPieceKindCount] = {5, 15, 4, 3};
+    const int defaultLimits[kPieceKindCount] = {5, 15, 4, 5};
     const int defaultPrestige[kPieceKindCount] = {1, 0, 2, 1};
     for (int i = 0; i < kPieceKindCount; ++i) {
         const JsonValue* piece = pieces->Find(pieceKeys[i]);
@@ -239,6 +305,20 @@ bool LoadScenarioFromJson(const std::string& text, Scenario& out, std::string& e
         out.worldEvent.terrain = out.FindTerrain(worldEvent->GetString("terrain"));
         if (out.worldEvent.terrain < 0) {
             error = "El evento de lava necesita 'terrain' con un terreno existente";
+            return false;
+        }
+    }
+
+    // Dados de terreno
+    BuildDefaultDice(out);
+    const JsonValue* dice = root.Find("dice");
+    if (dice) {
+        if (!ReadDie(out, dice->Find("terrain"), out.dice[0], error, "terrain")) return false;
+        if (!ReadDie(out, dice->Find("region"), out.dice[1], error, "region")) return false;
+    }
+    for (int terrain : out.ProducingTerrains()) {
+        if (out.FacesShowingTerrain(terrain) == 0) {
+            error = "El terreno " + out.terrains[static_cast<size_t>(terrain)].id + " no aparece en ningún dado";
             return false;
         }
     }

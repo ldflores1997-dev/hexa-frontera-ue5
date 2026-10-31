@@ -171,61 +171,36 @@ TEST("Preparación: orden serpiente, distancia entre puestos y ruta pegada al pu
     }
 }
 
-// ---------- Dados y producción ----------
+// ---------- Dados de terreno y producción ----------
 
-TEST("Dados: números del 2 al 12 sin 7, solo en casillas que producen y sin 6 u 8 vecinos") {
-    for (const std::string& id : hftest::ScenarioIds()) {
-        const Scenario scenario = LoadScenario(id);
-        for (uint64_t seed = 1; seed <= 20; ++seed) {
-            Board board;
-            board.Build(scenario, seed);
-            std::map<int, int> counts;
-            for (size_t t = 0; t < board.Tiles().size(); ++t) {
-                const Tile& tile = board.Tiles()[t];
-                const bool produces = scenario.terrains[static_cast<size_t>(tile.terrain)].resource >= 0;
-                EXPECT(produces ? (tile.number >= 2 && tile.number <= 12 && tile.number != 7) : tile.number == 0);
-                ++counts[tile.number];
-                if (tile.number != 6 && tile.number != 8) continue;
-                for (int neighbor : board.TileNeighbors(static_cast<int>(t))) {
-                    const int other = board.Tiles()[static_cast<size_t>(neighbor)].number;
-                    EXPECT(other != 6 && other != 8);
-                }
-            }
-            // Con 18 casillas productivas sale una tanda exacta: un 2, un 12 y dos de cada otro número.
-            if (board.Tiles().size() == 19) {
-                EXPECT_EQ(counts[2], 1);
-                EXPECT_EQ(counts[12], 1);
-                EXPECT_EQ(counts[6], 2);
-                EXPECT_EQ(counts[8], 2);
-            }
-        }
-        Board a;
-        Board b;
-        a.Build(scenario, 99);
-        b.Build(scenario, 99);
-        for (size_t t = 0; t < a.Tiles().size(); ++t) EXPECT_EQ(a.Tiles()[t].number, b.Tiles()[t].number);
+// Cara (1-6) del dado que muestra lo pedido; -1 si no hay.
+static int FindFace(const Scenario& scenario, int die, DieFaceKind kind, int terrain = -1) {
+    for (int face = 0; face < kDieFaces; ++face) {
+        const DieFace& f = scenario.dice[die][face];
+        if (f.kind == kind && (kind != DieFaceKind::Terrain || terrain < 0 || f.terrain == terrain)) return face + 1;
     }
+    return -1;
 }
 
-TEST("Dados: probabilidad de cada suma") {
-    EXPECT_EQ(DiceWays(2), 1);
-    EXPECT_EQ(DiceWays(6), 5);
-    EXPECT_EQ(DiceWays(7), 6);
-    EXPECT_EQ(DiceWays(8), 5);
-    EXPECT_EQ(DiceWays(12), 1);
-    EXPECT_EQ(DiceWays(1), 0);
+static int CountFaces(const Scenario& scenario, int die, DieFaceKind kind) {
     int total = 0;
-    for (int sum = 2; sum <= 12; ++sum) total += DiceWays(sum);
-    EXPECT_EQ(total, 36);
+    for (int face = 0; face < kDieFaces; ++face)
+        if (scenario.dice[die][face].kind == kind) ++total;
+    return total;
 }
 
-// Calcula lo que debería producir la tirada, a partir del estado antes de tirar.
-static std::vector<std::vector<int>> ExpectedProduction(const Game& game, int roll, int boostedTile) {
+// Lo que deberían producir los terrenos A y B (iguales = dobles), a partir del estado antes de tirar.
+static std::vector<std::vector<int>> ExpectedProduction(const Game& game, int terrainA, int terrainB, int boostedTile) {
+    int intensity = 1;
+    if (terrainA >= 0 && terrainA == terrainB) {
+        intensity = 2;
+        terrainB = -1;
+    }
     std::vector<std::vector<int>> gain(game.Players().size(), std::vector<int>(game.GetScenario().resources.size(), 0));
     const auto& tiles = game.GetBoard().Tiles();
     for (size_t t = 0; t < tiles.size(); ++t) {
         const Tile& tile = tiles[t];
-        const bool matched = tile.number == roll;
+        const bool matched = tile.terrain == terrainA || tile.terrain == terrainB;
         const bool boosted = boostedTile == static_cast<int>(t);
         if (tile.blockedRounds > 0 || (!matched && !boosted)) continue;
         const int resource = game.GetScenario().terrains[static_cast<size_t>(tile.terrain)].resource;
@@ -233,7 +208,7 @@ static std::vector<std::vector<int>> ExpectedProduction(const Game& game, int ro
         for (int v : tile.vertices) {
             const Building& b = game.Buildings()[static_cast<size_t>(v)];
             if (b.owner < 0) continue;
-            int amount = matched ? kDiceYield * b.level : b.level;
+            int amount = matched ? intensity * b.level : b.level;
             if (tile.frostRounds > 0) amount /= 2;
             if (matched && boosted) amount += 1;
             gain[static_cast<size_t>(b.owner)][static_cast<size_t>(resource)] += amount;
@@ -250,80 +225,210 @@ static void ExpectGain(const Game& before, const Game& after, const std::vector<
     }
 }
 
-TEST("Dados: producen las casillas con el número que sale, en los 4 escenarios") {
+static Game ReadyGame(const std::string& id, int players, uint64_t seed) {
+    Game game;
+    std::string error;
+    EXPECT(game.Init(LoadScenario(id), Names(players), seed, error));
+    EXPECT(hftest::FinishSetup(game));
+    return game;
+}
+
+TEST("Dados de terreno: caras por defecto (evento en el dado de terreno, comodines en el de región)") {
     for (const std::string& id : hftest::ScenarioIds()) {
-        Game game;
-        std::string error;
-        EXPECT(game.Init(LoadScenario(id), Names(4), 11, error));
-        EXPECT(hftest::FinishSetup(game));
+        const Scenario scenario = LoadScenario(id);
+        const std::vector<int> producing = scenario.ProducingTerrains();
+        EXPECT_EQ(CountFaces(scenario, 0, DieFaceKind::Event), 1);
+        EXPECT_EQ(CountFaces(scenario, 1, DieFaceKind::Event), 0);
+        EXPECT(CountFaces(scenario, 1, DieFaceKind::Wild) >= 1);
+        for (int terrain : producing) EXPECT(scenario.FacesShowingTerrain(terrain) >= 1);
+        for (const auto& die : scenario.dice) {
+            for (const DieFace& face : die) {
+                if (face.kind != DieFaceKind::Terrain) continue;
+                EXPECT(std::find(producing.begin(), producing.end(), face.terrain) != producing.end());
+            }
+        }
+        if (producing.size() == 4) {
+            EXPECT_EQ(CountFaces(scenario, 0, DieFaceKind::Wild), 1);
+            EXPECT_EQ(CountFaces(scenario, 1, DieFaceKind::Wild), 2);
+        }
+        if (producing.size() == 5) {
+            EXPECT_EQ(CountFaces(scenario, 0, DieFaceKind::Wild), 0);
+            EXPECT_EQ(CountFaces(scenario, 1, DieFaceKind::Wild), 1);
+        }
+    }
+}
+
+TEST("Dados de terreno: se pueden definir en el JSON y se validan") {
+    const std::string base = hftest::ReadFile(std::string(HF_SCENARIO_DIR) + "/islas_volcanicas.json");
+    auto withDice = [&base](const std::string& dice) {
+        std::string text = base;
+        text.replace(text.find("\"contracts\""), 0, "\"dice\": " + dice + ",\n  ");
+        return text;
+    };
+    Scenario scenario;
+    std::string error;
+    EXPECT(LoadScenarioFromJson(withDice(R"({"terrain": ["palmar", "palmar", "arrecife", "fumarola", "campo_obsidiana", "event"],
+                                             "region": ["palmar", "arrecife", "fumarola", "campo_obsidiana", "wild", "event"]})"),
+                                scenario, error));
+    EXPECT_EQ(scenario.FacesShowingTerrain(scenario.FindTerrain("palmar")), 3);
+    EXPECT(scenario.dice[1][5].kind == DieFaceKind::Event);
+    EXPECT(!LoadScenarioFromJson(withDice(R"({"terrain": ["palmar"], "region": ["palmar"]})"), scenario, error));
+    EXPECT(!LoadScenarioFromJson(withDice(R"({"terrain": ["crater", "palmar", "arrecife", "fumarola", "campo_obsidiana", "event"],
+                                              "region": ["palmar", "arrecife", "fumarola", "campo_obsidiana", "wild", "wild"]})"),
+                                 scenario, error));
+    EXPECT(!LoadScenarioFromJson(withDice(R"({"terrain": ["palmar", "palmar", "palmar", "fumarola", "event", "event"],
+                                              "region": ["palmar", "fumarola", "wild", "wild", "wild", "wild"]})"),
+                                 scenario, error));
+    EXPECT(error.find("ningún dado") != std::string::npos);
+}
+
+TEST("Dados de terreno: producen los terrenos que salen, en los 4 escenarios") {
+    for (const std::string& id : hftest::ScenarioIds()) {
+        Game game = ReadyGame(id, 4, 11);
         int checked = 0;
-        std::map<int, int> rolls;
-        for (int turn = 0; turn < 120; ++turn) {
+        int events = 0;
+        int wilds = 0;
+        for (int turn = 0; turn < 150; ++turn) {
             EXPECT(game.GetPhase() == Phase::AwaitRoll);
-            // Antes de tirar no se puede comerciar.
-            EXPECT(!game.Apply(Action::Sell(0)).ok);
+            EXPECT(!game.Apply(Action::Sell(0)).ok); // antes de tirar no se comercia
             Game before = game;
-            ApplyResult result = game.Apply(Action::Roll());
-            EXPECT(result.ok);
+            EXPECT(game.Apply(Action::Roll()).ok);
             EXPECT(game.LastDie(0) >= 1 && game.LastDie(0) <= 6);
             EXPECT(game.LastDie(1) >= 1 && game.LastDie(1) <= 6);
-            ++rolls[game.LastRoll()];
-            if (game.LastRoll() != kWorldEventRoll) {
-                ExpectGain(before, game, ExpectedProduction(before, game.LastRoll(), -1));
+            const bool event = game.LastFace(0).kind == DieFaceKind::Event;
+            if (event) ++events;
+            if (game.GetPhase() == Phase::ChooseWild) {
+                ++wilds;
+                EXPECT(!game.Apply(Action::End()).ok); // primero se elige el terreno
+                EXPECT(game.Apply(Action::Wild(Bot::BestWildTerrain(game, game.CurrentPlayer()))).ok);
+            }
+            EXPECT(game.GetPhase() == Phase::Main);
+            // Con evento el tablero pudo cambiar antes de producir: ahí no se compara.
+            if (!event) {
+                ExpectGain(before, game, ExpectedProduction(before, game.RolledTerrain(0), game.RolledTerrain(1), -1));
                 ++checked;
             }
             EXPECT(!game.Apply(Action::Roll()).ok); // una tirada por turno
             EXPECT(game.Apply(Action::End()).ok);
         }
-        EXPECT(checked > 80);
-        EXPECT(rolls[7] > rolls[2]); // el 7 sale mucho más que el 2
+        EXPECT(checked > 100);
+        EXPECT(events > 10 && events < 45); // 1 de cada 6 tiradas
+        EXPECT(wilds > 10);
     }
 }
 
-TEST("Dados: una tirada hecha afuera (física) usa esos valores y se valida") {
-    Game game;
-    std::string error;
-    EXPECT(game.Init(LoadScenario("andes_valles"), Names(3), 17, error));
-    EXPECT(hftest::FinishSetup(game));
+TEST("Dados de terreno: una tirada hecha afuera (física) usa esas caras y se valida") {
+    Game game = ReadyGame("andes_valles", 3, 17);
     EXPECT(!game.Apply(Action::RollWith(0, 3)).ok);
     EXPECT(!game.Apply(Action::RollWith(4, 7)).ok);
     EXPECT(!game.Apply(Action::RollWith(-1, 5)).ok);
     EXPECT(game.GetPhase() == Phase::AwaitRoll);
+    const Scenario& scenario = game.GetScenario();
+    const int a = scenario.dice[0][1].terrain;
+    const int b = scenario.dice[1][2].terrain;
     Game before = game;
-    ApplyResult result = game.Apply(Action::RollWith(2, 4));
+    ApplyResult result = game.Apply(Action::RollWith(2, 3));
     EXPECT(result.ok);
-    EXPECT_EQ(game.LastRoll(), 6);
     EXPECT(result.events.front().type == EventType::DiceRolled);
-    EXPECT_EQ(result.events.front().amount, 6);
-    ExpectGain(before, game, ExpectedProduction(before, 6, -1));
+    EXPECT_EQ(result.events.front().index, 2);
+    EXPECT_EQ(result.events.front().amount, 3);
+    EXPECT_EQ(game.RolledTerrain(0), a);
+    EXPECT_EQ(game.RolledTerrain(1), b);
+    ExpectGain(before, game, ExpectedProduction(before, a, b, -1));
 }
 
-TEST("Dados: con 7 ocurre el evento del mundo y nadie produce por número") {
-    Game game;
-    std::string error;
-    EXPECT(game.Init(LoadScenario("ciudad_flotante"), Names(2), 5, error));
-    EXPECT(hftest::FinishSetup(game));
-    const auto resources = game.Players()[0].resources;
-    ApplyResult result = game.Apply(Action::RollWith(3, 4));
+TEST("Dados de terreno: dobles producen el doble") {
+    Game game = ReadyGame("islas_volcanicas", 2, 23);
+    const Scenario& scenario = game.GetScenario();
+    const int terrain = scenario.ProducingTerrains().front();
+    const int first = FindFace(scenario, 0, DieFaceKind::Terrain, terrain);
+    const int second = FindFace(scenario, 1, DieFaceKind::Terrain, terrain);
+    EXPECT(first > 0 && second > 0);
+    Game before = game;
+    EXPECT(game.Apply(Action::RollWith(first, second)).ok);
+    const auto gain = ExpectedProduction(before, terrain, terrain, -1);
+    ExpectGain(before, game, gain);
+    // Comparado con una sola cara del mismo terreno, da exactamente el doble.
+    const auto single = ExpectedProduction(before, terrain, -1, -1);
+    for (size_t p = 0; p < gain.size(); ++p)
+        for (size_t r = 0; r < gain[p].size(); ++r) EXPECT_EQ(gain[p][r], 2 * single[p][r]);
+}
+
+TEST("Dados de terreno: la cara de evento dispara el evento y el otro dado produce igual") {
+    Game game = ReadyGame("colonia_marte", 2, 5);
+    const Scenario& scenario = game.GetScenario();
+    const int terrain = scenario.dice[1][0].terrain;
+    EXPECT(terrain >= 0);
+    ApplyResult result = game.Apply(Action::RollWith(FindFace(scenario, 0, DieFaceKind::Event), 1));
     EXPECT(result.ok);
-    EXPECT_EQ(static_cast<int>(std::count_if(result.events.begin(), result.events.end(),
-                                             [](const GameEvent& e) { return e.type == EventType::PlatformSwap; })), 1);
-    EXPECT(game.Players()[0].resources == resources);
+    EXPECT(game.GetPhase() == Phase::Main);
+    int storms = 0;
+    for (const GameEvent& e : result.events) {
+        if (e.type == EventType::DustStorm) ++storms;
+        if (e.type == EventType::Produced) {
+            const Tile& tile = game.GetBoard().Tiles()[static_cast<size_t>(e.tile)];
+            EXPECT_EQ(tile.terrain, terrain);
+            EXPECT_EQ(tile.blockedRounds, 0);
+        }
+    }
+    EXPECT_EQ(storms, 3);
+    EXPECT_EQ(game.RolledTerrain(0), -1);
+    EXPECT_EQ(game.RolledTerrain(1), terrain);
 }
 
-TEST("Refuerzo: gasta Influencia, solo junto a construcciones propias; produce aunque no salga su número") {
-    Game game;
-    std::string error;
-    EXPECT(game.Init(LoadScenario("islas_volcanicas"), Names(2), 3, error));
-    EXPECT(hftest::FinishSetup(game));
+TEST("Dados de terreno: con el comodín el jugador elige qué terreno produce") {
+    Game game = ReadyGame("islas_volcanicas", 2, 31);
+    const Scenario& scenario = game.GetScenario();
+    const int other = scenario.dice[0][0].terrain;
+    const int wild = FindFace(scenario, 1, DieFaceKind::Wild);
+    Game before = game;
+    ApplyResult rolled = game.Apply(Action::RollWith(1, wild));
+    EXPECT(rolled.ok);
+    EXPECT(game.GetPhase() == Phase::ChooseWild);
+    EXPECT_EQ(game.PendingWilds(), 1);
+    for (const GameEvent& e : rolled.events) EXPECT(e.type != EventType::Produced); // todavía no produce
+    EXPECT(!game.Apply(Action::End()).ok);
+    EXPECT(!game.Apply(Action::Buy(0)).ok);
+    EXPECT(!game.Apply(Action::Wild(scenario.FindTerrain("crater"))).ok); // no produce recursos
+    EXPECT(!game.Apply(Action::Wild(99)).ok);
+    const int chosen = scenario.FindTerrain("fumarola");
+    ApplyResult result = game.Apply(Action::Wild(chosen));
+    EXPECT(result.ok);
+    EXPECT(game.GetPhase() == Phase::Main);
+    EXPECT(result.events.front().type == EventType::WildChosen);
+    EXPECT_EQ(result.events.front().index, chosen);
+    ExpectGain(before, game, ExpectedProduction(before, chosen, other, -1));
+
+    // Dos comodines: el terreno elegido produce como dobles.
+    Game twice = ReadyGame("islas_volcanicas", 2, 31);
+    Game start = twice;
+    EXPECT(twice.Apply(Action::RollWith(FindFace(scenario, 0, DieFaceKind::Wild), wild)).ok);
+    EXPECT_EQ(twice.PendingWilds(), 2);
+    EXPECT(twice.Apply(Action::Wild(chosen)).ok);
+    ExpectGain(start, twice, ExpectedProduction(start, chosen, chosen, -1));
+}
+
+TEST("Bot: elige para el comodín el terreno que más le rinde") {
+    Game game = ReadyGame("andes_valles", 3, 41);
+    const int player = game.CurrentPlayer();
+    const int best = Bot::BestWildTerrain(game, player);
+    for (int terrain : game.GetScenario().ProducingTerrains())
+        EXPECT(game.TerrainYieldFor(player, best) >= game.TerrainYieldFor(player, terrain));
+    EXPECT(game.TerrainYieldFor(player, best) > 0);
+}
+
+TEST("Refuerzo: gasta Influencia, solo junto a construcciones propias; produce aunque no salga su terreno") {
+    Game game = ReadyGame("islas_volcanicas", 2, 3);
+    const Scenario& scenario = game.GetScenario();
     const int player = game.CurrentPlayer();
     int ownTile = -1;
     int foreignTile = -1;
     for (size_t t = 0; t < game.GetBoard().Tiles().size(); ++t) {
+        const Tile& tile = game.GetBoard().Tiles()[t];
         bool mine = false;
-        for (int v : game.GetBoard().Tiles()[t].vertices)
+        for (int v : tile.vertices)
             if (game.Buildings()[static_cast<size_t>(v)].owner == player) mine = true;
-        if (mine && ownTile < 0 && game.GetBoard().Tiles()[t].number > 0) ownTile = static_cast<int>(t);
+        if (mine && ownTile < 0 && scenario.terrains[static_cast<size_t>(tile.terrain)].resource >= 0) ownTile = static_cast<int>(t);
         if (!mine && foreignTile < 0) foreignTile = static_cast<int>(t);
     }
     EXPECT(ownTile >= 0);
@@ -333,26 +438,34 @@ TEST("Refuerzo: gasta Influencia, solo junto a construcciones propias; produce a
     EXPECT_EQ(game.Players()[static_cast<size_t>(player)].influence, influence - 1);
     EXPECT(!game.Apply(Action::BoostTile(ownTile)).ok); // una vez por turno
 
-    // Si sale su número: el doble por nivel más 1 por construcción.
-    const int number = game.GetBoard().Tiles()[static_cast<size_t>(ownTile)].number;
-    const int first = number <= 7 ? 1 : number - 6;
+    const int terrain = game.GetBoard().Tiles()[static_cast<size_t>(ownTile)].terrain;
+    // Si sale su terreno: 1 por nivel más 1 por construcción.
     Game matched = game;
-    EXPECT(matched.Apply(Action::RollWith(first, number - first)).ok);
-    ExpectGain(game, matched, ExpectedProduction(game, number, ownTile));
-
-    // Si no sale (incluso con 7): produce 1 por nivel igual.
-    for (int roll : {number == 2 ? 3 : 2, kWorldEventRoll}) {
-        if (roll == number) continue;
-        Game missed = game;
-        const int a = roll <= 7 ? 1 : roll - 6;
-        EXPECT(missed.Apply(Action::RollWith(a, roll - a)).ok);
-        if (roll != kWorldEventRoll) ExpectGain(game, missed, ExpectedProduction(game, roll, ownTile));
-        // Con 7 el evento puede cambiar la casilla; alcanza con que el jugador reciba algo.
-        int gained = 0;
-        for (size_t r = 0; r < game.GetScenario().resources.size(); ++r)
-            gained += missed.Players()[static_cast<size_t>(player)].resources[r] - game.Players()[static_cast<size_t>(player)].resources[r];
-        EXPECT(gained > 0);
+    const int face = FindFace(scenario, 0, DieFaceKind::Terrain, terrain);
+    int otherFace = -1;
+    for (int f = 1; f <= kDieFaces; ++f) {
+        const DieFace& d = scenario.dice[1][f - 1];
+        if (d.kind == DieFaceKind::Terrain && d.terrain != terrain) { otherFace = f; break; }
     }
+    EXPECT(matched.Apply(Action::RollWith(face, otherFace)).ok);
+    ExpectGain(game, matched, ExpectedProduction(game, terrain, scenario.dice[1][otherFace - 1].terrain, ownTile));
+
+    // Si no sale: produce 1 por nivel igual.
+    int missFace = -1;
+    for (int f = 1; f <= kDieFaces; ++f) {
+        const DieFace& d = scenario.dice[0][f - 1];
+        if (d.kind == DieFaceKind::Terrain && d.terrain != terrain && d.terrain != scenario.dice[1][otherFace - 1].terrain) {
+            missFace = f;
+            break;
+        }
+    }
+    Game missed = game;
+    EXPECT(missed.Apply(Action::RollWith(missFace, otherFace)).ok);
+    ExpectGain(game, missed, ExpectedProduction(game, scenario.dice[0][missFace - 1].terrain, scenario.dice[1][otherFace - 1].terrain, ownTile));
+    int gained = 0;
+    for (size_t r = 0; r < scenario.resources.size(); ++r)
+        gained += missed.Players()[static_cast<size_t>(player)].resources[r] - game.Players()[static_cast<size_t>(player)].resources[r];
+    EXPECT(gained > 0);
 }
 
 // ---------- Mercado ----------
@@ -362,7 +475,7 @@ TEST("Mercado: comprar sube el precio, vender lo baja, y vuelve al equilibrio co
     std::string error;
     EXPECT(game.Init(LoadScenario("colonia_marte"), Names(2), 9, error));
     EXPECT(hftest::FinishSetup(game));
-    EXPECT(game.Apply(Action::Roll()).ok);
+    EXPECT(hftest::RollAndResolve(game));
 
     const int start = game.MarketBuyPrice(0);
     const int coins = game.Players()[0].coins;
@@ -381,7 +494,7 @@ TEST("Mercado: comprar sube el precio, vender lo baja, y vuelve al equilibrio co
     const int depleted = game.MarketStock(1);
     EXPECT(depleted < game.GetScenario().marketStartStock);
     EXPECT(game.Apply(Action::End()).ok); // jugador 1
-    EXPECT(game.Apply(Action::Roll()).ok);
+    EXPECT(hftest::RollAndResolve(game));
     EXPECT(game.Apply(Action::End()).ok); // nueva ronda
     EXPECT_EQ(game.MarketStock(1), depleted + 1);
 }
@@ -393,16 +506,16 @@ TEST("Obra pública: cuesta 1 de cada recurso, da prestigio y tiene límite") {
     std::string error;
     EXPECT(game.Init(LoadScenario("islas_volcanicas"), Names(2), 13, error));
     EXPECT(hftest::FinishSetup(game));
-    EXPECT(game.Apply(Action::Roll()).ok);
+    EXPECT(hftest::RollAndResolve(game));
     const PieceDef& work = game.GetScenario().Piece(PieceKind::Work);
-    EXPECT_EQ(work.limit, 3);
+    EXPECT_EQ(work.limit, 5);
     for (int amount : work.cost) EXPECT_EQ(amount, 1);
     // Pasan turnos sin construir nada hasta que el jugador 0 junta 1 de cada recurso.
     // Lo que no produce lo compra en el mercado, vendiendo lo que le sobra.
     int built = 0;
     for (int attempt = 0; attempt < 600 && built < work.limit + 1; ++attempt) {
         if (game.GetPhase() == Phase::Finished) break;
-        if (game.GetPhase() == Phase::AwaitRoll) { EXPECT(game.Apply(Action::Roll()).ok); continue; }
+        if (game.GetPhase() == Phase::AwaitRoll) { EXPECT(hftest::RollAndResolve(game)); continue; }
         if (game.CurrentPlayer() != 0) { EXPECT(game.Apply(Action::End()).ok); continue; }
         const int prestige = game.Prestige(0);
         if (game.CanBuild(0, PieceKind::Work)) {
@@ -434,7 +547,7 @@ TEST("Intercambio: valida que ambos tengan lo ofrecido") {
     std::string error;
     EXPECT(game.Init(LoadScenario("islas_volcanicas"), Names(2), 21, error));
     EXPECT(hftest::FinishSetup(game));
-    EXPECT(game.Apply(Action::Roll()).ok);
+    EXPECT(hftest::RollAndResolve(game));
     const size_t n = game.GetScenario().resources.size();
     int mine = -1;
     int theirs = -1;
@@ -461,7 +574,7 @@ TEST("Intercambio: valida que ambos tengan lo ofrecido") {
 
 // ---------- Eventos del mundo ----------
 
-// Avanza con bots hasta que se revele una carta de evento; devuelve el estado previo y los eventos.
+// Avanza con bots hasta que salga la cara de evento; devuelve el estado previo y los eventos.
 static bool RunUntilWorldEvent(Game& game, Game& before, std::vector<GameEvent>& events) {
     int actions = 0;
     for (int guard = 0; guard < 20000 && game.GetPhase() != Phase::Finished; ++guard) {
@@ -470,7 +583,12 @@ static bool RunUntilWorldEvent(Game& game, Game& before, std::vector<GameEvent>&
             ApplyResult result = game.Apply(Action::Roll());
             if (!result.ok) return false;
             actions = 0;
-            if (game.LastRoll() == kWorldEventRoll) {
+            if (game.GetPhase() == Phase::ChooseWild) {
+                ApplyResult chosen = game.Apply(Action::Wild(Bot::BestWildTerrain(game, game.CurrentPlayer())));
+                if (!chosen.ok) return false;
+                result.events.insert(result.events.end(), chosen.events.begin(), chosen.events.end());
+            }
+            if (game.LastFace(0).kind == DieFaceKind::Event) {
                 events = result.events;
                 return true;
             }
@@ -528,6 +646,10 @@ TEST("Evento tormenta: bloquea 3 casillas 2 rondas y no producen") {
     EXPECT(game.Apply(Action::End()).ok);
     while (game.CurrentPlayer() != 0 && game.GetPhase() == Phase::AwaitRoll) {
         ApplyResult result = game.Apply(Action::Roll());
+        if (game.GetPhase() == Phase::ChooseWild) {
+            ApplyResult chosen = game.Apply(Action::Wild(Bot::BestWildTerrain(game, game.CurrentPlayer())));
+            result.events.insert(result.events.end(), chosen.events.begin(), chosen.events.end());
+        }
         for (const GameEvent& e : result.events) {
             if (e.type == EventType::Produced)
                 EXPECT(std::find(stormed.begin(), stormed.end(), e.tile) == stormed.end());
@@ -618,6 +740,38 @@ TEST("Partidas de bots: terminan con ganador y sin acciones ilegales (4 escenari
         }
         if (finished != total) std::printf("  %s: %d de %d partidas terminadas\n", id.c_str(), finished, total);
         EXPECT_EQ(finished, total);
+    }
+}
+
+TEST("Ronda final: al llegar a la meta se completa la ronda y gana el de más prestigio") {
+    for (int players = 2; players <= 4; ++players) {
+        for (uint64_t seed = 1; seed <= 15; ++seed) {
+            Game game;
+            std::string error;
+            EXPECT(game.Init(LoadScenario("islas_volcanicas"), Names(players), seed, error));
+            int actions = 0;
+            int finalRoundBy = -1;
+            int finalRoundNumber = -1;
+            while (game.GetPhase() != Phase::Finished && game.Round() < 200) {
+                hf::ApplyResult result;
+                EXPECT(hftest::BotStep(game, actions, &result));
+                for (const GameEvent& e : result.events) {
+                    if (e.type == EventType::FinalRound) {
+                        EXPECT_EQ(finalRoundBy, -1); // se anuncia una sola vez
+                        finalRoundBy = e.player;
+                        finalRoundNumber = game.Round();
+                        EXPECT(game.Prestige(e.player) >= game.PrestigeTarget());
+                    }
+                }
+                if (finalRoundBy >= 0 && game.GetPhase() != Phase::Finished) EXPECT(game.IsFinalRound());
+            }
+            EXPECT(game.GetPhase() == Phase::Finished);
+            EXPECT(finalRoundBy >= 0);
+            // Termina al cerrar esa misma ronda, con el último jugador como último en jugar.
+            EXPECT_EQ(game.Round(), finalRoundNumber);
+            EXPECT_EQ(game.CurrentPlayer(), players - 1);
+            for (int p = 0; p < players; ++p) EXPECT(game.Prestige(game.Winner()) >= game.Prestige(p));
+        }
     }
 }
 

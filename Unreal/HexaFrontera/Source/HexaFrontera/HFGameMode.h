@@ -88,6 +88,10 @@ private:
 	// Tira los dados con física; cuando se quedan quietos se aplica la tirada a la partida.
 	void StartDiceRoll();
 	void OnDiceSettled(int32 First, int32 Second);
+	// Pinta las caras de los dados con los terrenos del escenario actual.
+	void ApplyDiceFaces();
+	// Ilumina las casillas de los terrenos que salieron (ya resuelto el comodín).
+	void FlashRolledTerrains();
 	void ResetTurnTimer();
 	void OnTurnTimeout();
 };

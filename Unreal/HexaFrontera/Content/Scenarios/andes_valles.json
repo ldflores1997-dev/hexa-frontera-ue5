@@ -3,7 +3,7 @@
   "name": "Andes y valles",
   "description": "Quebradas, viñedos y salares bajo las cumbres. Las heladas castigan regiones enteras.",
   "radius": 3,
-  "prestige_to_win": 16,
+  "prestige_to_win": 18,
   "resources": [
     {"id": "cobre", "name": "Cobre", "color": "#c46a32"},
     {"id": "lana", "name": "Lana", "color": "#efe6d2"},

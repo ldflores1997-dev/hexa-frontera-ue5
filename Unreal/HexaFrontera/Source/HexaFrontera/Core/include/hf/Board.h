@@ -5,18 +5,13 @@
 #include <vector>
 
 #include "hf/Hex.h"
-#include "hf/Random.h"
 #include "hf/Scenario.h"
 
 namespace hf {
 
-// Probabilidad de cada suma de dos dados, en 36avos (2 y 12: 1; 7: 6).
-int DiceWays(int sum);
-
 struct Tile {
     Axial coord;
     int terrain = -1;
-    int number = 0;        // suma de dados que la hace producir (2-12, nunca 7); 0 si no produce
     int blockedRounds = 0; // tormenta: no produce
     int frostRounds = 0;   // helada: produce la mitad
     std::array<int, 6> vertices{};
@@ -39,7 +34,7 @@ struct Edge {
 
 class Board {
 public:
-    // Arma el tablero del escenario y reparte los terrenos y los números al azar con la semilla.
+    // Arma el tablero del escenario y reparte los terrenos al azar con la semilla.
     void Build(const Scenario& scenario, uint64_t seed);
 
     const std::vector<Tile>& Tiles() const { return tiles; }
@@ -52,8 +47,6 @@ public:
     int EdgeBetween(int vertexA, int vertexB) const; // -1 si no son vecinos
 
 private:
-    void AssignNumbers(const Scenario& scenario, Random& rng);
-
     std::vector<Tile> tiles;
     std::vector<Vertex> vertices;
     std::vector<Edge> edges;

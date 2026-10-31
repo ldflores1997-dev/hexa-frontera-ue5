@@ -17,6 +17,7 @@ const char* ActionTypeName(ActionType type) {
         case ActionType::PublicWork: return "PublicWork";
         case ActionType::Boost: return "Boost";
         case ActionType::RollDice: return "RollDice";
+        case ActionType::ChooseWild: return "ChooseWild";
         case ActionType::MarketBuy: return "MarketBuy";
         case ActionType::MarketSell: return "MarketSell";
         case ActionType::PlayerTrade: return "PlayerTrade";
@@ -53,6 +54,8 @@ bool Game::Init(const Scenario& scenarioDef, const std::vector<std::string>& pla
 
     hasRolled = false;
     lastDice[0] = lastDice[1] = 0;
+    rolledTerrains[0] = rolledTerrains[1] = -1;
+    pendingWilds = 0;
     phase = Phase::Setup;
     setupStep = 0;
     setupNeedsRoute = false;
@@ -60,6 +63,7 @@ bool Game::Init(const Scenario& scenarioDef, const std::vector<std::string>& pla
     currentPlayer = 0;
     round = 0;
     winner = -1;
+    finalRound = false;
     boostedTile = -1;
     return true;
 }
@@ -237,13 +241,12 @@ void Game::CheckContractsAndVictory(int player, std::vector<GameEvent>& events) 
         claimed.index = static_cast<int>(c);
         events.push_back(claimed);
     }
-    if (phase != Phase::Setup && player == currentPlayer && Prestige(player) >= PrestigeTarget()) {
-        phase = Phase::Finished;
-        winner = player;
-        GameEvent won;
-        won.type = EventType::Won;
-        won.player = player;
-        events.push_back(won);
+    if (phase != Phase::Setup && !finalRound && Prestige(player) >= PrestigeTarget()) {
+        finalRound = true;
+        GameEvent final;
+        final.type = EventType::FinalRound;
+        final.player = player;
+        events.push_back(final);
     }
 }
 
@@ -271,13 +274,37 @@ void Game::TickStatuses() {
     }
 }
 
-void Game::Produce(int roll, std::vector<GameEvent>& events) {
+DieFace Game::LastFace(int index) const {
+    const int face = lastDice[index];
+    if (face < 1 || face > kDieFaces) return DieFace{DieFaceKind::Terrain, -1};
+    return scenario.dice[index][face - 1];
+}
+
+int Game::TerrainYieldFor(int player, int terrain) const {
+    int total = 0;
+    for (const Tile& tile : board.Tiles()) {
+        if (tile.terrain != terrain || tile.blockedRounds > 0) continue;
+        for (int vertex : tile.vertices) {
+            const Building& building = buildings[static_cast<size_t>(vertex)];
+            if (building.owner == player) total += tile.frostRounds > 0 ? building.level / 2 : building.level;
+        }
+    }
+    return total;
+}
+
+void Game::Produce(int terrainA, int terrainB, std::vector<GameEvent>& events) {
+    // Dobles: si los dos dados muestran el mismo terreno, produce el doble.
+    int intensity = 1;
+    if (terrainA >= 0 && terrainA == terrainB) {
+        intensity = 2;
+        terrainB = -1;
+    }
     const std::vector<Tile>& tiles = board.Tiles();
     for (size_t t = 0; t < tiles.size(); ++t) {
         const Tile& tile = tiles[t];
         if (tile.terrain < 0 || tile.blockedRounds > 0) continue;
-        // Produce si sale su número; la casilla reforzada produce igual aunque no salga.
-        const bool matched = tile.number == roll;
+        // Produce si sale su terreno; la casilla reforzada produce igual aunque no salga.
+        const bool matched = tile.terrain == terrainA || tile.terrain == terrainB;
         const bool boosted = boostedTile == static_cast<int>(t);
         if (!matched && !boosted) continue;
         const int resource = scenario.terrains[static_cast<size_t>(tile.terrain)].resource;
@@ -285,7 +312,7 @@ void Game::Produce(int roll, std::vector<GameEvent>& events) {
         for (int vertex : tile.vertices) {
             const Building& building = buildings[static_cast<size_t>(vertex)];
             if (building.owner < 0) continue;
-            int amount = matched ? kDiceYield * building.level : building.level;
+            int amount = matched ? intensity * building.level : building.level;
             if (tile.frostRounds > 0) amount /= 2;
             if (matched && boosted) amount += 1;
             if (amount <= 0) continue;
@@ -299,6 +326,12 @@ void Game::Produce(int roll, std::vector<GameEvent>& events) {
             events.push_back(produced);
         }
     }
+}
+
+void Game::FinishRoll(std::vector<GameEvent>& events) {
+    Produce(rolledTerrains[0], rolledTerrains[1], events);
+    boostedTile = -1;
+    phase = Phase::Main;
 }
 
 void Game::ApplyWorldEvent(std::vector<GameEvent>& events) {
@@ -317,11 +350,6 @@ void Game::ApplyWorldEvent(std::vector<GameEvent>& events) {
             for (int i = 0; i < affected && i < static_cast<int>(candidates.size()); ++i) {
                 const int t = candidates[static_cast<size_t>(i)];
                 tiles[static_cast<size_t>(t)].terrain = def.terrain;
-                if (tiles[static_cast<size_t>(t)].number == 0) {
-                    // Una casilla que no producía (el cráter) recibe un número al convertirse.
-                    static const int kNumbers[] = {2, 3, 4, 5, 6, 8, 9, 10, 11, 12};
-                    tiles[static_cast<size_t>(t)].number = kNumbers[rng.NextInt(10)];
-                }
                 GameEvent lava;
                 lava.type = EventType::Lava;
                 lava.tile = t;
@@ -383,7 +411,6 @@ void Game::ApplyWorldEvent(std::vector<GameEvent>& events) {
                 Tile& a = tiles[static_cast<size_t>(first)];
                 Tile& b = tiles[static_cast<size_t>(second)];
                 std::swap(a.terrain, b.terrain);
-                std::swap(a.number, b.number);
                 std::swap(a.blockedRounds, b.blockedRounds);
                 std::swap(a.frostRounds, b.frostRounds);
                 GameEvent swap;
@@ -505,17 +532,45 @@ ApplyResult Game::Apply(const Action& action) {
             lastDice[1] = rng.NextInt(6) + 1;
         }
         hasRolled = true;
-        const int roll = LastRoll();
         GameEvent rolled;
         rolled.type = EventType::DiceRolled;
         rolled.player = player;
-        rolled.amount = roll;
+        rolled.index = lastDice[0];
+        rolled.amount = lastDice[1];
         result.events.push_back(rolled);
-        // Con 7 nadie produce por número: ocurre el evento del mundo. La casilla reforzada produce igual.
-        if (roll == kWorldEventRoll) ApplyWorldEvent(result.events);
-        Produce(roll, result.events);
-        boostedTile = -1;
-        phase = Phase::Main;
+
+        pendingWilds = 0;
+        for (int die = 0; die < kDiceCount; ++die) {
+            const DieFace face = LastFace(die);
+            rolledTerrains[die] = face.kind == DieFaceKind::Terrain ? face.terrain : -1;
+            if (face.kind == DieFaceKind::Event) ApplyWorldEvent(result.events);
+            if (face.kind == DieFaceKind::Wild) ++pendingWilds;
+        }
+        if (pendingWilds > 0) {
+            phase = Phase::ChooseWild; // la producción espera a que el jugador elija
+        } else {
+            FinishRoll(result.events);
+        }
+        result.ok = true;
+        return result;
+    }
+
+    if (phase == Phase::ChooseWild) {
+        if (action.type != ActionType::ChooseWild) return Fail("Elegí qué terreno produce con el comodín");
+        const std::vector<int> producing = scenario.ProducingTerrains();
+        if (std::find(producing.begin(), producing.end(), action.target) == producing.end())
+            return Fail("Elegí un terreno que produzca recursos");
+        // Dos comodines: el terreno elegido produce como dobles.
+        const int other = pendingWilds >= 2 ? action.target : (rolledTerrains[0] >= 0 ? rolledTerrains[0] : rolledTerrains[1]);
+        rolledTerrains[0] = action.target;
+        rolledTerrains[1] = other;
+        pendingWilds = 0;
+        GameEvent chosen;
+        chosen.type = EventType::WildChosen;
+        chosen.player = player;
+        chosen.index = action.target;
+        result.events.push_back(chosen);
+        FinishRoll(result.events);
         result.ok = true;
         return result;
     }
@@ -641,7 +696,24 @@ ApplyResult Game::Apply(const Action& action) {
             break;
         }
         case ActionType::EndTurn: {
-            currentPlayer = (currentPlayer + 1) % static_cast<int>(players.size());
+            const int next = (currentPlayer + 1) % static_cast<int>(players.size());
+            if (finalRound && next == 0) {
+                // Todos jugaron la misma cantidad de turnos: gana el de más prestigio. En un empate
+                // gana el que jugó más tarde (tuvo que esperar más para cada turno).
+                int best = 0;
+                for (int i = 1; i < static_cast<int>(players.size()); ++i) {
+                    if (Prestige(i) >= Prestige(best)) best = i;
+                }
+                phase = Phase::Finished;
+                winner = best;
+                GameEvent won;
+                won.type = EventType::Won;
+                won.player = best;
+                result.events.push_back(won);
+                result.ok = true;
+                return result;
+            }
+            currentPlayer = next;
             if (currentPlayer == 0) {
                 ++round;
                 TickStatuses();
@@ -652,6 +724,7 @@ ApplyResult Game::Apply(const Action& action) {
         }
         case ActionType::Boost:
         case ActionType::RollDice:
+        case ActionType::ChooseWild:
             return Fail("Ya tiraste los dados este turno");
     }
 

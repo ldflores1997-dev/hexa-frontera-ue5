@@ -406,7 +406,9 @@ TSharedRef<SWidget> AHFHUD::BuildGame()
 									? FString::Printf(TEXT("Colocá una %s junto a tu %s"), *Match.PieceName(hf::PieceKind::Route), *Match.PieceName(hf::PieceKind::Outpost))
 									: FString::Printf(TEXT("Elegí dónde va tu %s (puntos resaltados)"), *Match.PieceName(hf::PieceKind::Outpost)));
 							case hf::Phase::AwaitRoll:
-								return Str(TEXT("Tirá los dados (Espacio). Antes podés reforzar una casilla con Influencia."));
+								return Str(TEXT("Tirá los dados de terreno (Espacio). Antes podés reforzar una casilla con Influencia."));
+							case hf::Phase::ChooseWild:
+								return Str(TEXT("¡Comodín! Elegí qué terreno produce"));
 							default:
 								return Str(TEXT("Construí, comerciá o terminá el turno (Espacio)"));
 							}
@@ -457,6 +459,21 @@ TSharedRef<SWidget> AHFHUD::BuildGame()
 					const AHFGameMode* M = GetHexGameMode();
 					return M ? Str(M->GetLastError()) : FText::GetEmpty();
 				}), 16, true, DangerColor))
+			]
+		]
+		// Comodín: elegir qué terreno produce
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+		[
+			SNew(SBox)
+			.WidthOverride(420.0f)
+			.Visibility_Lambda([Mode]()
+			{
+				const AHFGameMode* M = Mode();
+				return M && M->IsInMatch() && !M->GetMatch()->IsBotTurn() && M->GetMatch()->GetGame().GetPhase() == hf::Phase::ChooseWild
+					? EVisibility::Visible : EVisibility::Collapsed;
+			})
+			[
+				BuildWildPanel()
 			]
 		]
 		// Intercambio
@@ -750,6 +767,48 @@ TSharedRef<SWidget> AHFHUD::BuildContractsPanel()
 				return Str(FString::Join(Lines, TEXT("\n")));
 			}), 12, false, MutedColor)
 		]);
+}
+
+TSharedRef<SWidget> AHFHUD::BuildWildPanel()
+{
+	TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
+	const AHFGameMode* Mode = GetHexGameMode();
+	if (!Mode || !Mode->GetMatch())
+	{
+		return Panel(Box);
+	}
+	const FHFMatch& StartMatchRef = *Mode->GetMatch();
+	Box->AddSlot().AutoHeight().Padding(0, 0, 0, 4)[Label(Str(TEXT("Comodín")), 18, true, AccentColor)];
+	Box->AddSlot().AutoHeight().Padding(0, 0, 0, 8)
+	[
+		Label(TAttribute<FText>::CreateLambda([this]()
+		{
+			const AHFGameMode* M = GetHexGameMode();
+			if (!M || !M->GetMatch()) return FText::GetEmpty();
+			return Str(M->GetMatch()->GetGame().PendingWilds() >= 2
+				? FString(TEXT("Salieron dos comodines: el terreno que elijas produce el doble."))
+				: FString(TEXT("Elegí qué terreno produce junto con el otro dado.")));
+		}), 12, false, MutedColor)
+	];
+	for (int32 Terrain : StartMatchRef.GetScenario().ProducingTerrains())
+	{
+		Box->AddSlot().AutoHeight().Padding(0, 2)
+		[
+			Button(TAttribute<FText>::CreateLambda([this, Terrain]()
+			{
+				const AHFGameMode* M = GetHexGameMode();
+				if (!M || !M->GetMatch()) return FText::GetEmpty();
+				const FHFMatch& Match = *M->GetMatch();
+				const hf::Game& Game = Match.GetGame();
+				const int32 Resource = Match.GetScenario().terrains[static_cast<size_t>(Terrain)].resource;
+				// Cuánto le da a este jugador, para decidir rápido.
+				return Str(FString::Printf(TEXT("%s: %s (te da %d)"), *Match.TerrainName(Terrain), *Match.ResourceName(Resource),
+					Game.TerrainYieldFor(Game.CurrentPlayer(), Terrain)));
+			}),
+			[this, Terrain]() { if (AHFGameMode* M = GetHexGameMode()) M->ApplyHumanAction(hf::Action::Wild(Terrain)); })
+		];
+	}
+	return Panel(Box);
 }
 
 TSharedRef<SWidget> AHFHUD::BuildTradePanel()

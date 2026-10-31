@@ -1,5 +1,6 @@
-// Dos dados con física que se tiran sobre una bandeja junto al tablero.
-// Cuando se quedan quietos avisan qué cara quedó arriba; ese resultado es el que usa la partida.
+// Dos dados de terreno con física que se tiran sobre una bandeja junto al tablero.
+// Cada cara muestra un terreno (su color), el evento del mundo o un comodín. Cuando se quedan
+// quietos avisan qué cara (1-6) quedó arriba; la partida traduce esa cara con los dados del escenario.
 #pragma once
 
 #include "CoreMinimal.h"
@@ -11,6 +12,14 @@ class UStaticMeshComponent;
 class UMaterialInstanceDynamic;
 
 DECLARE_DELEGATE_TwoParams(FHFOnDiceSettled, int32 /*First*/, int32 /*Second*/);
+
+// Cómo se ve una cara: el color del terreno, o los símbolos del evento y del comodín.
+struct FHFDieFaceLook
+{
+	enum class ESymbol : uint8 { Terrain, Event, Wild };
+	FLinearColor Color = FLinearColor::White;
+	ESymbol Symbol = ESymbol::Terrain;
+};
 
 UCLASS()
 class HEXAFRONTERA_API AHFDice : public AActor
@@ -25,6 +34,8 @@ public:
 	// Arma la bandeja en Location (mirando hacia Facing) y tira los dados desde el lado de la cámara.
 	void Throw(const FVector& Location, float FacingYaw);
 	bool IsRolling() const { return bRolling; }
+	// Caras de cada dado (6 por dado, en el orden 1-6). Si cambian, los dados se rearman en la próxima tirada.
+	void SetFaces(const TArray<FHFDieFaceLook>& First, const TArray<FHFDieFaceLook>& Second);
 
 	// Último resultado (0 si todavía no se tiró).
 	int32 GetValue(int32 Index) const { return Values[Index]; }
@@ -52,6 +63,9 @@ private:
 	TObjectPtr<UStaticMesh> SphereMesh;
 
 	UPROPERTY()
+	TObjectPtr<UStaticMesh> ConeMesh;
+
+	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> TrayParts;
 
 	UPROPERTY()
@@ -65,6 +79,8 @@ private:
 	float StillSince = -1.0f;
 	int32 Nudges = 0;
 	int32 Values[2] = {0, 0};
+	TArray<FHFDieFaceLook> Looks[2];
+	bool bLooksChanged = false;
 
 	UMaterialInstanceDynamic* MakeMaterial(const FLinearColor& Color);
 	UStaticMeshComponent* AddPart(UStaticMesh* Mesh, USceneComponent* Parent, const FVector& Location, const FVector& Scale, UMaterialInstanceDynamic* Material);

@@ -186,12 +186,27 @@ FString FHFMatch::DescribeRoll() const
 	{
 		return TEXT("Todavía no se tiraron los dados");
 	}
-	const int32 Roll = Game.LastRoll();
-	if (Roll == hf::kWorldEventRoll)
+	TArray<FString> Faces;
+	for (int32 Die = 0; Die < hf::kDiceCount; ++Die)
 	{
-		return FString::Printf(TEXT("%d + %d = 7 · ¡%s!"), Game.LastDie(0), Game.LastDie(1), *ToFString(GetScenario().worldEvent.name));
+		const hf::DieFace Face = Game.LastFace(Die);
+		switch (Face.kind)
+		{
+		case hf::DieFaceKind::Terrain: Faces.Add(TerrainName(Face.terrain)); break;
+		case hf::DieFaceKind::Event: Faces.Add(FString::Printf(TEXT("¡%s!"), *ToFString(GetScenario().worldEvent.name))); break;
+		case hf::DieFaceKind::Wild: Faces.Add(TEXT("Comodín")); break;
+		}
 	}
-	return FString::Printf(TEXT("%d + %d = %d"), Game.LastDie(0), Game.LastDie(1), Roll);
+	FString Text = FString::Join(Faces, TEXT(" + "));
+	if (Game.RolledTerrain(0) >= 0 && Game.RolledTerrain(0) == Game.RolledTerrain(1))
+	{
+		Text += TEXT(" · ¡dobles!");
+	}
+	if (Game.GetPhase() == hf::Phase::ChooseWild)
+	{
+		Text += TEXT(" · elegí el terreno");
+	}
+	return Text;
 }
 
 FString FHFMatch::DescribeEvent(const hf::GameEvent& Event) const
@@ -223,6 +238,8 @@ FString FHFMatch::DescribeEvent(const hf::GameEvent& Event) const
 	case hf::EventType::PlatformSwap: return FString::Printf(TEXT("Desacople: %s y %s cambian de lugar"), *TileName(Event.tile), *TileName(Event.tile2));
 	case hf::EventType::ContractClaimed:
 		return FString::Printf(TEXT("%s cumple el contrato «%s»"), *Who, *ToFString(GetScenario().contracts[static_cast<size_t>(Event.index)].name));
+	case hf::EventType::WildChosen: return FString::Printf(TEXT("%s elige %s con el comodín"), *Who, *TerrainName(Event.index));
+	case hf::EventType::FinalRound: return FString::Printf(TEXT("¡%s llegó a la meta! Última ronda: gana quien tenga más prestigio"), *Who);
 	case hf::EventType::Won: return FString::Printf(TEXT("¡%s gana la partida!"), *Who);
 	}
 	return FString();

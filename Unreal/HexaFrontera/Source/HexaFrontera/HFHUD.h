@@ -100,4 +100,5 @@ private:
 	TSharedRef<SWidget> BuildMarketPanel();
 	TSharedRef<SWidget> BuildContractsPanel();
 	TSharedRef<SWidget> BuildTradePanel();
+	TSharedRef<SWidget> BuildWildPanel();
 };

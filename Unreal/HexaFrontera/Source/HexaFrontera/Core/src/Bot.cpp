@@ -62,6 +62,19 @@ int BestRoute(const Game& game, int player, const std::vector<int>& candidates, 
 
 } // namespace
 
+int Bot::BestWildTerrain(const Game& game, int player) {
+    int best = -1;
+    int bestYield = -1;
+    for (int terrain : game.GetScenario().ProducingTerrains()) {
+        const int yield = game.TerrainYieldFor(player, terrain);
+        if (yield > bestYield) {
+            bestYield = yield;
+            best = terrain;
+        }
+    }
+    return best;
+}
+
 double Bot::ScoreVertex(const Game& game, int player, int vertex) {
     const Scenario& scenario = game.GetScenario();
     const Board& board = game.GetBoard();
@@ -81,8 +94,8 @@ double Bot::ScoreVertex(const Game& game, int player, int vertex) {
         if (t.terrain < 0) continue;
         const int resource = scenario.terrains[static_cast<size_t>(t.terrain)].resource;
         if (resource < 0) continue;
-        // Vale más una casilla con un número que sale seguido (6 y 8: 5 de 36; 2 y 12: 1 de 36).
-        double value = DiceWays(t.number) / 3.0;
+        // Vale más un terreno que aparece en más caras de los dados (lo normal: 2 de 12).
+        double value = scenario.FacesShowingTerrain(t.terrain) / 2.0;
         if (t.blockedRounds > 0) value -= 0.4;
         if (t.frostRounds > 0) value -= 0.2;
         if (!owned[static_cast<size_t>(resource)] && !counted[static_cast<size_t>(resource)]) value += 0.6;
@@ -104,7 +117,7 @@ Action Bot::ChooseAction(const Game& game, int actionsThisTurn) {
 
     if (game.GetPhase() == Phase::AwaitRoll) {
         if (me.influence >= 3 && game.BoostedTile() < 0) {
-            // Refuerza donde tiene más construcciones; a igualdad, la casilla que menos sale con los dados.
+            // Refuerza donde tiene más construcciones; a igualdad, el terreno que menos sale en los dados.
             int bestTile = -1;
             int bestScore = 0;
             const auto& tiles = game.GetBoard().Tiles();
@@ -117,7 +130,7 @@ Action Bot::ChooseAction(const Game& game, int actionsThisTurn) {
                     if (game.Buildings()[static_cast<size_t>(vertex)].owner == player)
                         level += game.Buildings()[static_cast<size_t>(vertex)].level;
                 }
-                const int score = level * 10 - DiceWays(tiles[t].number);
+                const int score = level * 10 - scenario.FacesShowingTerrain(tiles[t].terrain);
                 if (level > 0 && score > bestScore) {
                     bestScore = score;
                     bestTile = static_cast<int>(t);
@@ -127,6 +140,8 @@ Action Bot::ChooseAction(const Game& game, int actionsThisTurn) {
         }
         return Action::Roll();
     }
+
+    if (game.GetPhase() == Phase::ChooseWild) return Action::Wild(BestWildTerrain(game, player));
 
     if (game.GetPhase() != Phase::Main || actionsThisTurn >= kMaxBotActionsPerTurn) return Action::End();
 
