@@ -18,3 +18,4 @@ CoreTests/build/
 # Exportaciones de Blender
 Tools/blender/out/
 *.blend1
+Tools/windows/revisar_pc.txt

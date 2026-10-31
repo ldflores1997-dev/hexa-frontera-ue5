@@ -10,7 +10,20 @@
   - En componentes individuales: el SDK de Windows 10/11 más reciente y *MSVC v143*.
 - Git y Git LFS.
 
+## Revisar e instalar automáticamente
+
+En la carpeta del repo hay dos scripts de PowerShell:
+
+1. **Revisar qué falta**: hacé clic derecho en `Tools\windows\revisar_pc.ps1` y elegí **Ejecutar con PowerShell**. Revisa Windows, RAM, placa de video, espacio en disco, Visual Studio, Epic Games Launcher, Unreal y Git. Solo lee, no cambia nada. Deja un informe en `Tools\windows\revisar_pc.txt`.
+2. **Instalar lo que falta**: abrí PowerShell **como administrador**, entrá a la carpeta del repo y corré:
+   ```
+   powershell -ExecutionPolicy Bypass -File Tools\windows\instalar_requisitos.ps1
+   ```
+   Instala Visual Studio 2022 Community con las cargas de C++ para juegos, el Epic Games Launcher y Git LFS.
+3. **Unreal Engine** se instala a mano, porque pide iniciar sesión: abrí el Epic Games Launcher y andá a **Unreal Engine → Biblioteca → +**. Elegí la versión 5.4 o posterior y tocá **Instalar**.
+
 ## Primera vez
+
 
 1. Cloná el repo: `git clone` y después `git lfs install`.
 2. En `Unreal/HexaFrontera/`, hacé clic derecho sobre `HexaFrontera.uproject` y elegí **Generate Visual Studio project files**. Si usás otra versión de UE, primero elegí **Switch Unreal Engine version**.
