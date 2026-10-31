@@ -83,8 +83,15 @@ if (Test-Path $dat) {
 }
 Get-ChildItem 'HKLM:\SOFTWARE\EpicGames\Unreal Engine' | ForEach-Object {
     $dir = (Get-ItemProperty $_.PSPath).InstalledDirectory
-    if ($dir -and -not ($versiones | Where-Object { $_.InstallLocation -eq $dir })) { $versiones += [pscustomobject]@{ AppName = "UE_$($_.PSChildName)"; InstallLocation = $dir } }
+    if ($dir -and (Test-Path $dir) -and -not ($versiones | Where-Object { $_.InstallLocation -eq $dir })) { $versiones += [pscustomobject]@{ AppName = "UE_$($_.PSChildName)"; InstallLocation = $dir } }
 }
+# El launcher a veces tarda en anotar una instalación nueva: buscar también las carpetas UE_5.x.
+Get-PSDrive -PSProvider FileSystem | ForEach-Object { "$($_.Root)Program Files\Epic Games", "$($_.Root)Epic Games" } | Where-Object { Test-Path $_ } |
+    ForEach-Object { Get-ChildItem $_ -Directory -Filter 'UE_5.*' } |
+    Where-Object { Test-Path (Join-Path $_.FullName 'Engine\Binaries\Win64\UnrealEditor.exe') } | ForEach-Object {
+        $dir = $_.FullName
+        if (-not ($versiones | Where-Object { $_.InstallLocation.TrimEnd('\') -eq $dir })) { $versiones += [pscustomobject]@{ AppName = $_.Name; InstallLocation = $dir } }
+    }
 $compatibles = $versiones | Where-Object { [version]($_.AppName -replace '^UE_', '') -ge [version]'5.4' }
 if ($compatibles) { foreach ($v in $compatibles) { Linea OK "Unreal Engine $($v.AppName -replace '^UE_','') en $($v.InstallLocation)" } }
 elseif ($versiones) { Linea FALTA "Hay Unreal $(( $versiones | ForEach-Object { $_.AppName -replace '^UE_','' }) -join ', '), pero el juego necesita 5.4 o posterior"; $faltantes.Add('ue') }

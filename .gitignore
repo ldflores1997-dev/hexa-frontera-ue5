@@ -5,6 +5,7 @@ Unreal/HexaFrontera/Saved/
 Unreal/HexaFrontera/DerivedDataCache/
 Unreal/HexaFrontera/.vs/
 Unreal/HexaFrontera/*.sln
+Unreal/HexaFrontera/*.slnx
 Unreal/HexaFrontera/.vsconfig
 *.VC.db
 *.opensdf
