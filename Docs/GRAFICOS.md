@@ -4,7 +4,20 @@ El juego arranca con casillas y decoraciones generadas por código. La escena ya
 
 - iluminación global con Lumen;
 - cielo físico con un tono distinto en cada mundo;
-- nubes volumétricas, niebla volumétrica, sombras virtuales y bloom.
+- nubes volumétricas, niebla volumétrica, sombras virtuales y bloom;
+- **ciclo de día y noche** (8 minutos por día, `DayLengthMinutes` en `AHFEnvironment`): atardeceres naranjas, luz de luna y ventanas que se prenden en puestos y centros;
+- **terrenos vivos**, todo por código:
+  - árboles, pasto, cultivos, viñedos y corales que se mecen con el viento;
+  - olas en el arrecife;
+  - volcán con lava que late, humo y chispas;
+  - vapor en las fumarolas;
+  - chimeneas que humean;
+  - engranajes que giran y banderas que flamean;
+  - paneles solares que siguen al sol;
+  - cristales y salares que destellan;
+  - remolinos de polvo en el cráter de Marte y nieve en el nevado.
+
+  Están en `AddDecoration` y `TickLife`, en `HFBoardActor.cpp`.
 
 Para llegar al aspecto fotorrealista se reemplazan los materiales y las mallas de cada terreno. Todo se configura en `Config/DefaultGame.ini`, sin tocar C++.
 

@@ -14,6 +14,7 @@
 
 AHFEnvironment::AHFEnvironment()
 {
+	PrimaryActorTick.bCanEverTick = true;
 	USceneComponent* Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	SetRootComponent(Root);
 
@@ -23,6 +24,16 @@ AHFEnvironment::AHFEnvironment()
 	Sun->SetAtmosphereSunLight(true);
 	Sun->SetDynamicShadowCascades(4);
 	Sun->bUseTemperature = false;
+
+	// Luz de luna: azulada y suave, sin teñir el cielo (el cielo lo define el sol bajo el horizonte).
+	Moon = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("Moon"));
+	Moon->SetupAttachment(Root);
+	Moon->SetMobility(EComponentMobility::Movable);
+	Moon->SetAtmosphereSunLight(false);
+	Moon->SetLightColor(FLinearColor(0.55f, 0.65f, 1.0f));
+	Moon->SetIntensity(0.0f);
+	Moon->SetCastShadows(false);
+	Moon->bUseTemperature = false;
 
 	Atmosphere = CreateDefaultSubobject<USkyAtmosphereComponent>(TEXT("Atmosphere"));
 	Atmosphere->SetupAttachment(Root);
@@ -57,10 +68,12 @@ void AHFEnvironment::ApplyScenario(const FHFMatch& Match, float BoardExtent)
 {
 	const hf::EnvironmentDef& Env = Match.GetScenario().environment;
 
-	// Sol: la elevación define el clima de la escena (atardecer bajo, mediodía alto).
-	Sun->SetWorldRotation(FRotator(-Env.sunElevation, 35.0f, 0.0f));
-	Sun->SetLightColor(FHFMatch::ToLinear(Env.sunColor));
-	Sun->SetIntensity(Env.sunIntensity);
+	// Sol: la elevación del escenario es la altura del mediodía; el día arranca a media mañana.
+	NoonElevation = Env.sunElevation;
+	SunIntensity = Env.sunIntensity;
+	SunColor = FHFMatch::ToLinear(Env.sunColor);
+	DayTime = 0.33f;
+	UpdateSky();
 
 	// Cielo: el tinte de Rayleigh cambia el color del cielo (azul en la Tierra, ocre en Marte).
 	const FLinearColor Sky = FHFMatch::ToLinear(Env.skyTint);
@@ -106,6 +119,48 @@ void AHFEnvironment::ApplyScenario(const FHFMatch& Match, float BoardExtent)
 	Settings.VignetteIntensity = 0.35f;
 	Settings.bOverride_ColorSaturation = true;
 	Settings.ColorSaturation = FVector4(1.08f, 1.08f, 1.08f, 1.0f);
+	// La exposición automática no compensa del todo la noche: tiene que verse más oscura.
+	Settings.bOverride_AutoExposureMinBrightness = true;
+	Settings.AutoExposureMinBrightness = 1.0f;
 
 	SkyLight->RecaptureSky();
+}
+
+void AHFEnvironment::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	if (DayLengthMinutes <= 0.0f)
+	{
+		return;
+	}
+	DayTime = FMath::Fmod(DayTime + DeltaSeconds / (DayLengthMinutes * 60.0f), 1.0f);
+	UpdateSky();
+
+	// La luz del cielo con captura en tiempo real se actualiza sola; igual se fuerza cada tanto
+	// para que el cambio de color al atardecer no se demore.
+	const float Now = static_cast<float>(GetWorld()->GetTimeSeconds());
+	if (Now - LastRecapture > 4.0f)
+	{
+		LastRecapture = Now;
+		SkyLight->RecaptureSky();
+	}
+}
+
+void AHFEnvironment::UpdateSky()
+{
+	// El sol sube hasta la elevación del mediodía y baja a -12° a medianoche (crepúsculo azul, no negro total).
+	const float Arc = FMath::Sin((DayTime - 0.25f) * 2.0f * UE_PI); // -1 medianoche, 1 mediodía
+	const float Elevation = Arc >= 0.0f ? Arc * NoonElevation : Arc * 12.0f;
+	const float Yaw = 35.0f + (DayTime - 0.5f) * 220.0f; // sale por un lado y se pone por el otro
+	Sun->SetWorldRotation(FRotator(-Elevation, Yaw, 0.0f));
+	SunDirection = -FRotator(-Elevation, Yaw, 0.0f).Vector();
+
+	// Atardecer: el sol se pone naranja cerca del horizonte.
+	const float Low = 1.0f - FMath::Clamp(Elevation / 20.0f, 0.0f, 1.0f);
+	Sun->SetLightColor(FLinearColor::LerpUsingHSV(SunColor, FLinearColor(1.0f, 0.45f, 0.18f), Low * 0.8f));
+	Sun->SetIntensity(SunIntensity * FMath::Clamp((Elevation + 4.0f) / 14.0f, 0.0f, 1.0f));
+
+	NightAmount = FMath::Clamp((4.0f - Elevation) / 12.0f, 0.0f, 1.0f);
+	Moon->SetWorldRotation(FRotator(-35.0f, Yaw + 180.0f, 0.0f));
+	Moon->SetIntensity(0.6f * NightAmount);
 }
