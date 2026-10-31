@@ -21,5 +21,8 @@ public class HexaFrontera : ModuleRules
 			"Slate",
 			"SlateCore",
 		});
+
+		// Textura blanca global (GWhiteTexture) para dibujar las cartas con Canvas.
+		PrivateDependencyModuleNames.Add("RenderCore");
 	}
 }

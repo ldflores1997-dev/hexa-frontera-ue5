@@ -15,6 +15,7 @@ struct FHFMatchConfig
 	TArray<FString> PlayerNames;
 	TArray<bool> Bots; // un valor por jugador
 	int64 Seed = 1;
+	int32 TurnSeconds = 90; // reloj por turno; 0 = sin límite
 };
 
 class FHFMatch
@@ -35,8 +36,10 @@ public:
 
 	bool IsBot(int32 Player) const { return BotFlags.IsValidIndex(Player) && BotFlags[Player]; }
 	bool IsBotTurn() const;
-	// Ejecuta una acción del bot del turno. Devuelve false si no había nada que hacer.
-	bool StepBot();
+	// Lo que haría el bot del turno ahora (sin aplicarlo).
+	hf::Action ChooseBotAction() const;
+	// Aplica una acción del bot del turno. Devuelve false si no había nada que hacer.
+	bool ApplyBotAction(const hf::Action& Action);
 	// Un bot acepta un intercambio si recibe al menos lo mismo que entrega y le sirve.
 	bool BotAcceptsTrade(int32 Bot, const std::vector<int>& BotGives, const std::vector<int>& BotGets) const;
 
@@ -49,7 +52,7 @@ public:
 	FString TerrainName(int32 Terrain) const;
 	FString PieceName(hf::PieceKind Kind) const;
 	FString CostText(const std::vector<int>& Cost) const;
-	FString DescribePulse() const;
+	FString DescribeRoll() const;
 	FString DescribeEvent(const hf::GameEvent& Event) const;
 
 	FHFOnMatchEvents OnEvents;

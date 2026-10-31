@@ -44,7 +44,7 @@ En la carpeta del repo hay dos scripts de PowerShell:
 | Girar la cámara | Clic derecho + arrastrar, o Q / E |
 | Zoom | Rueda del mouse |
 | Mover la cámara | WASD o flechas |
-| Revelar el Pulso / terminar el turno | Espacio |
+| Tirar los dados / terminar el turno | Espacio |
 | Cancelar la herramienta | Esc |
 
 ## Si algo falla

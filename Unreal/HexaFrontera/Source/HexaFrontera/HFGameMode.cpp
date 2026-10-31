@@ -1,8 +1,10 @@
 ﻿#include "HFGameMode.h"
 
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
 #include "HFBoardActor.h"
 #include "HFCameraPawn.h"
+#include "HFDice.h"
 #include "HFEnvironment.h"
 #include "HFHUD.h"
 #include "HFPlayerController.h"
@@ -25,6 +27,9 @@ void AHFGameMode::BeginPlay()
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	Environment = GetWorld()->SpawnActor<AHFEnvironment>(AHFEnvironment::StaticClass(), FTransform::Identity, Params);
 	Board = GetWorld()->SpawnActor<AHFBoardActor>(BoardClass ? BoardClass.Get() : AHFBoardActor::StaticClass(), FTransform::Identity, Params);
+	Dice = GetWorld()->SpawnActor<AHFDice>(AHFDice::StaticClass(), FTransform::Identity, Params);
+	Dice->SetActorHiddenInGame(true);
+	Dice->OnSettled.BindUObject(this, &AHFGameMode::OnDiceSettled);
 
 	// Sin PlayerStart en el mapa puede no haber pawn: se crea la cámara a mano.
 	if (APlayerController* Controller = UGameplayStatics::GetPlayerController(this, 0))
@@ -71,6 +76,8 @@ void AHFGameMode::PreviewScenario(const FString& ScenarioId, int32 PlayerCount)
 		return;
 	}
 	bInMatch = false;
+	bRollingDice = false;
+	Dice->SetActorHiddenInGame(true);
 	Match = Preview;
 	PreviewSeed = Config.Seed;
 	PreviewScenarioId = ScenarioId;
@@ -87,10 +94,13 @@ bool AHFGameMode::BeginHexMatch(const FHFMatchConfig& Config, FString& OutError)
 	Match = NewMatch;
 	Match->OnEvents.AddUObject(this, &AHFGameMode::HandleEvents);
 	bInMatch = true;
+	bRollingDice = false;
+	Dice->SetActorHiddenInGame(true);
 	Messages.Reset();
 	AddMessage(FString::Printf(TEXT("Comienza la partida en %s"), *FHFMatch::ToFString(Match->GetScenario().name)));
 	AddMessage(TEXT("Preparación: cada jugador coloca 2 puestos con su ruta"));
 	NextBotTime = static_cast<float>(GetWorld()->GetTimeSeconds()) + BotDelaySeconds;
+	ResetTurnTimer();
 	ShowWorld();
 	return true;
 }
@@ -123,11 +133,27 @@ AHFCameraPawn* AHFGameMode::GetCameraPawn() const
 	return Controller ? Cast<AHFCameraPawn>(Controller->GetPawn()) : nullptr;
 }
 
+AHFHUD* AHFGameMode::GetHexHUD() const
+{
+	APlayerController* Controller = UGameplayStatics::GetPlayerController(this, 0);
+	return Controller ? Cast<AHFHUD>(Controller->GetHUD()) : nullptr;
+}
+
 bool AHFGameMode::ApplyHumanAction(const hf::Action& Action)
 {
-	if (!IsInMatch() || Match->IsBotTurn())
+	if (!IsInMatch() || Match->IsBotTurn() || bRollingDice)
 	{
 		return false;
+	}
+	if (Action.type == hf::ActionType::RollDice && Action.dice[0] < 0)
+	{
+		if (Match->GetGame().GetPhase() != hf::Phase::AwaitRoll)
+		{
+			ShowError(TEXT("Ya tiraste los dados este turno"));
+			return false;
+		}
+		StartDiceRoll();
+		return true;
 	}
 	FString Error;
 	if (!Match->Apply(Action, Error))
@@ -145,19 +171,115 @@ void AHFGameMode::ShowError(const FString& Message)
 	LastErrorTime = static_cast<float>(GetWorld()->GetTimeSeconds());
 }
 
-void AHFGameMode::Tick(float DeltaSeconds)
+void AHFGameMode::StartDiceRoll()
 {
-	Super::Tick(DeltaSeconds);
-	if (!IsInMatch() || !Match->IsBotTurn())
+	// La bandeja va en el borde del tablero del lado de la cámara, y los dados ruedan hacia el fondo.
+	float Yaw = -30.0f;
+	if (APlayerController* Controller = UGameplayStatics::GetPlayerController(this, 0); Controller && Controller->PlayerCameraManager)
+	{
+		Yaw = static_cast<float>(Controller->PlayerCameraManager->GetCameraRotation().Yaw);
+	}
+	const FVector Forward = FRotator(0.0f, Yaw, 0.0f).Vector();
+	const FVector TrayLocation = -Forward * (Board->GetBoardExtent() + Dice->TraySize.Y * 0.5f + 180.0f);
+	bRollingDice = true;
+	Dice->Throw(TrayLocation, Yaw);
+	if (AHFCameraPawn* Camera = GetCameraPawn())
+	{
+		Camera->FocusOn(TrayLocation, Dice->MaxRollSeconds);
+	}
+	AddMessage(FString::Printf(TEXT("%s tira los dados…"), *Match->PlayerName(Match->GetGame().CurrentPlayer())));
+	++StateVersion;
+}
+
+void AHFGameMode::OnDiceSettled(int32 First, int32 Second)
+{
+	bRollingDice = false;
+	if (!IsInMatch() || Match->GetGame().GetPhase() != hf::Phase::AwaitRoll)
 	{
 		return;
 	}
-	const float Now = static_cast<float>(GetWorld()->GetTimeSeconds());
-	if (Now >= NextBotTime)
+	if (AHFCameraPawn* Camera = GetCameraPawn())
 	{
-		Match->StepBot();
-		NextBotTime = Now + BotDelaySeconds;
+		Camera->FocusOn(Dice->GetActorLocation(), 1.2f); // un momento para ver el resultado
 	}
+	FString Error;
+	if (!Match->Apply(hf::Action::RollWith(First, Second), Error))
+	{
+		ShowError(Error);
+	}
+}
+
+float AHFGameMode::GetTurnTimeLeft() const
+{
+	if (!IsInMatch() || GetTurnSeconds() <= 0 || Match->GetGame().GetPhase() == hf::Phase::Finished)
+	{
+		return -1.0f;
+	}
+	return FMath::Max(0.0f, TurnDeadline - static_cast<float>(GetWorld()->GetTimeSeconds()));
+}
+
+void AHFGameMode::ResetTurnTimer()
+{
+	TimerPlayer = Match.IsValid() ? Match->GetGame().CurrentPlayer() : -1;
+	TurnDeadline = static_cast<float>(GetWorld()->GetTimeSeconds()) + static_cast<float>(GetTurnSeconds());
+}
+
+void AHFGameMode::OnTurnTimeout()
+{
+	// Se acabó el tiempo: los dados se tiran solos, el turno termina o (en la preparación) se coloca la pieza.
+	const hf::Game& Game = Match->GetGame();
+	FString Error;
+	switch (Game.GetPhase())
+	{
+	case hf::Phase::Setup:
+		Match->Apply(Match->ChooseBotAction(), Error);
+		break;
+	case hf::Phase::AwaitRoll:
+		AddMessage(TEXT("¡Se acabó el tiempo! Los dados se tiran solos"));
+		StartDiceRoll();
+		break;
+	case hf::Phase::Main:
+		AddMessage(FString::Printf(TEXT("Se acabó el tiempo de %s"), *Match->PlayerName(Game.CurrentPlayer())));
+		Match->Apply(hf::Action::End(), Error);
+		break;
+	default:
+		break;
+	}
+}
+
+void AHFGameMode::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	Board->SetDayState(Environment->GetSunDirection(), Environment->GetNightAmount());
+	if (!IsInMatch())
+	{
+		return;
+	}
+	if (bRollingDice)
+	{
+		TurnDeadline += DeltaSeconds; // el reloj se pausa mientras ruedan los dados
+		return;
+	}
+	const float Now = static_cast<float>(GetWorld()->GetTimeSeconds());
+	if (GetTurnSeconds() > 0 && !Match->IsBotTurn() && Match->GetGame().GetPhase() != hf::Phase::Finished && Now >= TurnDeadline)
+	{
+		OnTurnTimeout();
+		return;
+	}
+	if (!Match->IsBotTurn() || Now < NextBotTime)
+	{
+		return;
+	}
+	const hf::Action Action = Match->ChooseBotAction();
+	if (Action.type == hf::ActionType::RollDice)
+	{
+		StartDiceRoll();
+	}
+	else
+	{
+		Match->ApplyBotAction(Action);
+	}
+	NextBotTime = Now + BotDelaySeconds;
 }
 
 void AHFGameMode::AddMessage(const FString& Message)
@@ -177,6 +299,7 @@ void AHFGameMode::HandleEvents(const std::vector<hf::GameEvent>& Events)
 {
 	const hf::Game& Game = Match->GetGame();
 	AHFCameraPawn* Camera = GetCameraPawn();
+	AHFHUD* Hud = GetHexHUD();
 	bool bPiecesChanged = false;
 	bool bStatusChanged = false;
 
@@ -201,27 +324,28 @@ void AHFGameMode::HandleEvents(const std::vector<hf::GameEvent>& Events)
 		case hf::EventType::RouteDestroyed:
 			bPiecesChanged = true;
 			break;
-		case hf::EventType::PulseRevealed:
+		case hf::EventType::DiceRolled:
 		{
 			bStatusChanged = true;
-			const hf::PulseCard& Card = Game.LastPulse();
-			if (!Card.isEvent)
+			TArray<int32> Tiles;
+			const auto& BoardTiles = Game.GetBoard().Tiles();
+			for (int32 T = 0; T < static_cast<int32>(BoardTiles.size()); ++T)
 			{
-				TArray<int32> Tiles;
-				const auto& BoardTiles = Game.GetBoard().Tiles();
-				for (int32 T = 0; T < static_cast<int32>(BoardTiles.size()); ++T)
+				if (BoardTiles[static_cast<size_t>(T)].number == Event.amount && BoardTiles[static_cast<size_t>(T)].blockedRounds == 0)
 				{
-					const int32 Terrain = BoardTiles[static_cast<size_t>(T)].terrain;
-					if ((Terrain == Card.terrainA || Terrain == Card.terrainB) && BoardTiles[static_cast<size_t>(T)].blockedRounds == 0)
-					{
-						Tiles.Add(T);
-					}
+					Tiles.Add(T);
 				}
-				const int32 Resource = Match->GetScenario().terrains[static_cast<size_t>(Card.terrainA)].resource;
-				Board->FlashTiles(Tiles, Resource >= 0 ? FHFMatch::ToLinear(Match->GetScenario().resources[static_cast<size_t>(Resource)].color) : FLinearColor::White);
 			}
+			Board->FlashTiles(Tiles, FLinearColor(1.0f, 0.85f, 0.45f));
+			Board->HighlightNumber(Event.amount);
 			break;
 		}
+		case hf::EventType::Produced:
+			if (Hud)
+			{
+				Hud->QueueCardFlight(Event.player, Event.resource, Event.amount, Board->TileWorld(Event.tile));
+			}
+			break;
 		case hf::EventType::Lava:
 		case hf::EventType::DustStorm:
 		case hf::EventType::Frost:
@@ -269,6 +393,13 @@ void AHFGameMode::HandleEvents(const std::vector<hf::GameEvent>& Events)
 	if (bPiecesChanged)
 	{
 		Board->RefreshPieces(*Match);
+	}
+	// El reloj vuelve a empezar con cada turno y, en la preparación, con cada puesto + ruta
+	// (en el orden serpiente el último jugador coloca dos veces seguidas).
+	const bool bNewSetupStep = Game.GetPhase() == hf::Phase::Setup && !Game.SetupNeedsRoute();
+	if (Game.CurrentPlayer() != TimerPlayer || bNewSetupStep)
+	{
+		ResetTurnTimer();
 	}
 	NextBotTime = static_cast<float>(GetWorld()->GetTimeSeconds()) + BotDelaySeconds;
 	++StateVersion;

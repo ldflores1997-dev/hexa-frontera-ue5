@@ -32,7 +32,7 @@ void AHFPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AHFPlayerController::OnZoomIn);
 	InputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AHFPlayerController::OnZoomOut);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AHFPlayerController::OnCancel);
-	InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AHFPlayerController::OnRevealOrEnd);
+	InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AHFPlayerController::OnRollOrEnd);
 }
 
 AHFGameMode* AHFPlayerController::GetHexGameMode() const
@@ -68,8 +68,8 @@ EHFTool AHFPlayerController::GetEffectiveTool() const
 	{
 	case hf::Phase::Setup:
 		return Game.SetupNeedsRoute() ? EHFTool::Route : EHFTool::Outpost;
-	case hf::Phase::AwaitPulse:
-		return Tool == EHFTool::Boost ? EHFTool::Boost : EHFTool::None;
+	case hf::Phase::AwaitRoll:
+		return Tool == EHFTool::Boost && !Mode->IsRollingDice() ? EHFTool::Boost : EHFTool::None;
 	case hf::Phase::Main:
 		return Tool == EHFTool::Boost ? EHFTool::None : Tool;
 	default:
@@ -283,7 +283,7 @@ void AHFPlayerController::OnCancel()
 	Tool = EHFTool::None;
 }
 
-void AHFPlayerController::OnRevealOrEnd()
+void AHFPlayerController::OnRollOrEnd()
 {
 	AHFGameMode* Mode = GetHexGameMode();
 	if (!IsHumanTurn())
@@ -291,9 +291,10 @@ void AHFPlayerController::OnRevealOrEnd()
 		return;
 	}
 	const hf::Phase Phase = Mode->GetMatch()->GetGame().GetPhase();
-	if (Phase == hf::Phase::AwaitPulse)
+	if (Phase == hf::Phase::AwaitRoll)
 	{
-		Mode->ApplyHumanAction(hf::Action::Reveal());
+		Tool = EHFTool::None;
+		Mode->ApplyHumanAction(hf::Action::Roll());
 	}
 	else if (Phase == hf::Phase::Main)
 	{

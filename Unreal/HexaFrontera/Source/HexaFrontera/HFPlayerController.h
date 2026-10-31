@@ -52,5 +52,5 @@ private:
 	void OnZoomIn();
 	void OnZoomOut();
 	void OnCancel();
-	void OnRevealOrEnd();
+	void OnRollOrEnd();
 };

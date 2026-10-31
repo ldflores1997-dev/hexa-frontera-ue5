@@ -9,7 +9,9 @@
 
 class AHFBoardActor;
 class AHFCameraPawn;
+class AHFDice;
 class AHFEnvironment;
+class AHFHUD;
 
 UCLASS()
 class HEXAFRONTERA_API AHFGameMode : public AGameModeBase
@@ -34,6 +36,11 @@ public:
 	bool IsInMatch() const { return bInMatch && Match.IsValid(); }
 	const FHFMatch* GetMatch() const { return Match.Get(); }
 	AHFBoardActor* GetBoard() const { return Board; }
+	bool IsRollingDice() const { return bRollingDice; }
+
+	// Segundos que le quedan al turno actual; -1 si la partida no tiene reloj.
+	float GetTurnTimeLeft() const;
+	int32 GetTurnSeconds() const { return Match.IsValid() ? Match->GetConfig().TurnSeconds : 0; }
 	int64 GetPreviewSeed() const { return PreviewSeed; }
 	const FString& GetPreviewScenarioId() const { return PreviewScenarioId; }
 
@@ -56,9 +63,15 @@ private:
 	UPROPERTY()
 	TObjectPtr<AHFEnvironment> Environment;
 
+	UPROPERTY()
+	TObjectPtr<AHFDice> Dice;
+
 	TSharedPtr<FHFMatch> Match;
 	bool bInMatch = false;
+	bool bRollingDice = false;
 	float NextBotTime = 0.0f;
+	float TurnDeadline = 0.0f;
+	int32 TimerPlayer = -1;
 	int32 StateVersion = 0;
 	int64 PreviewSeed = 1;
 	FString PreviewScenarioId;
@@ -70,4 +83,11 @@ private:
 	void ShowWorld();
 	void AddMessage(const FString& Message);
 	AHFCameraPawn* GetCameraPawn() const;
+	AHFHUD* GetHexHUD() const;
+
+	// Tira los dados con física; cuando se quedan quietos se aplica la tirada a la partida.
+	void StartDiceRoll();
+	void OnDiceSettled(int32 First, int32 Second);
+	void ResetTurnTimer();
+	void OnTurnTimeout();
 };

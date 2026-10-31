@@ -103,13 +103,17 @@ bool FHFMatch::IsBotTurn() const
 	return Game.GetPhase() != hf::Phase::Finished && IsBot(Game.CurrentPlayer());
 }
 
-bool FHFMatch::StepBot()
+hf::Action FHFMatch::ChooseBotAction() const
+{
+	return hf::Bot::ChooseAction(Game, BotActionsThisTurn);
+}
+
+bool FHFMatch::ApplyBotAction(const hf::Action& Action)
 {
 	if (!IsBotTurn())
 	{
 		return false;
 	}
-	const hf::Action Action = hf::Bot::ChooseAction(Game, BotActionsThisTurn);
 	FString Error;
 	if (!Apply(Action, Error))
 	{
@@ -176,23 +180,18 @@ FString FHFMatch::CostText(const std::vector<int>& Cost) const
 	return Parts.Num() > 0 ? FString::Join(Parts, TEXT(", ")) : TEXT("gratis");
 }
 
-FString FHFMatch::DescribePulse() const
+FString FHFMatch::DescribeRoll() const
 {
-	if (!Game.HasPulse())
+	if (!Game.HasRolled())
 	{
-		return TEXT("Todavía no se reveló ninguna carta");
+		return TEXT("Todavía no se tiraron los dados");
 	}
-	const hf::PulseCard& Card = Game.LastPulse();
-	if (Card.isEvent)
+	const int32 Roll = Game.LastRoll();
+	if (Roll == hf::kWorldEventRoll)
 	{
-		return FString::Printf(TEXT("¡%s!"), *ToFString(GetScenario().worldEvent.name));
+		return FString::Printf(TEXT("%d + %d = 7 · ¡%s!"), Game.LastDie(0), Game.LastDie(1), *ToFString(GetScenario().worldEvent.name));
 	}
-	FString Text = TerrainName(Card.terrainA);
-	if (Card.terrainB >= 0)
-	{
-		Text += TEXT(" + ") + TerrainName(Card.terrainB);
-	}
-	return FString::Printf(TEXT("%s (x%d)"), *Text, Card.intensity);
+	return FString::Printf(TEXT("%d + %d = %d"), Game.LastDie(0), Game.LastDie(1), Roll);
 }
 
 FString FHFMatch::DescribeEvent(const hf::GameEvent& Event) const
@@ -206,7 +205,7 @@ FString FHFMatch::DescribeEvent(const hf::GameEvent& Event) const
 	switch (Event.type)
 	{
 	case hf::EventType::TurnStarted: return FString::Printf(TEXT("Turno de %s"), *Who);
-	case hf::EventType::PulseRevealed: return FString::Printf(TEXT("Pulso: %s"), *DescribePulse());
+	case hf::EventType::DiceRolled: return FString::Printf(TEXT("%s tira los dados: %s"), *Who, *DescribeRoll());
 	case hf::EventType::Produced: return FString::Printf(TEXT("%s recibe %d %s"), *Who, Event.amount, *ResourceName(Event.resource));
 	case hf::EventType::Boosted: return FString::Printf(TEXT("%s refuerza %s"), *Who, *TileName(Event.tile));
 	case hf::EventType::OutpostBuilt: return FString::Printf(TEXT("%s construye %s"), *Who, *PieceName(hf::PieceKind::Outpost));

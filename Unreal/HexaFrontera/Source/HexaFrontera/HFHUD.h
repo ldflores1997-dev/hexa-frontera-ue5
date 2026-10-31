@@ -18,8 +18,47 @@ class HEXAFRONTERA_API AHFHUD : public AHUD
 public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	// Dibuja la mano de cartas de recursos y las cartas que vuelan (con Canvas, debajo de los paneles de Slate).
+	virtual void DrawHUD() override;
+
+	// Una carta sale volando desde la casilla que produjo hasta la mano del jugador.
+	void QueueCardFlight(int32 Player, int32 Resource, int32 Amount, const FVector& WorldLocation);
 
 private:
+	struct FCardFlight
+	{
+		int32 Player = -1;
+		int32 Resource = -1;
+		int32 Amount = 1;
+		FVector2D Start = FVector2D::ZeroVector;
+		float StartTime = 0.0f;
+	};
+
+	struct FLeavingCard
+	{
+		int32 Resource = -1;
+		FVector2D Start = FVector2D::ZeroVector;
+		float StartTime = 0.0f;
+		float Spin = 0.0f;
+	};
+
+	// Reloj por turno elegido en el menú (0 = sin límite).
+	int32 TurnSeconds = 90;
+
+	// Mano de cartas
+	TArray<FCardFlight> Flights;
+	TArray<FLeavingCard> Leaving;
+	TArray<int32> PrevCounts;
+	TArray<float> PopTime;
+	TArray<float> ShakeTime;
+	TArray<FVector2D> SlotPositions;
+	int32 PrevHandPlayer = -1;
+	int32 LastHumanPlayer = -1;
+
+	int32 HandPlayer() const;
+	float Now() const;
+	void DrawCard(int32 Resource, const FVector2D& Center, float Angle, float Scale, float Alpha, int32 Count);
+	void DrawPolygon(const FVector2D& Center, float Radius, int32 Sides, float Angle, const FLinearColor& Color);
 	struct FScenarioInfo
 	{
 		FString Id;
@@ -55,6 +94,7 @@ private:
 
 	TSharedRef<SWidget> BuildMenu();
 	TSharedRef<SWidget> BuildGame();
+	TSharedRef<SWidget> BuildTimer();
 	TSharedRef<SWidget> BuildPlayersPanel();
 	TSharedRef<SWidget> BuildActionsPanel();
 	TSharedRef<SWidget> BuildMarketPanel();
