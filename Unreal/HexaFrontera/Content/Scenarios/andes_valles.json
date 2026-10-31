@@ -27,7 +27,7 @@
   "event": {
     "type": "frost", "name": "Helada",
     "description": "Una casilla y sus vecinas producen la mitad durante la ronda.",
-    "cards": 4, "tiles": 1, "duration": 1
+    "tiles": 1, "duration": 1
   },
   "contracts": [
     {"id": "caminos_inca", "name": "Caminos de altura (8 caminos)", "type": "routes", "value": 8, "prestige": 2},

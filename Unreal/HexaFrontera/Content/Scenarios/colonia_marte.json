@@ -25,7 +25,7 @@
   "event": {
     "type": "dust_storm", "name": "Tormenta de polvo",
     "description": "Tres casillas quedan cubiertas de polvo y no producen durante 2 rondas.",
-    "cards": 3, "tiles": 3, "duration": 2
+    "tiles": 3, "duration": 2
   },
   "contracts": [
     {"id": "red_tuneles", "name": "Red de túneles (6 túneles)", "type": "routes", "value": 6, "prestige": 2},

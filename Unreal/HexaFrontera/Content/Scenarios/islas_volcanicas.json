@@ -25,7 +25,7 @@
   "event": {
     "type": "lava", "name": "Erupción",
     "description": "La lava cubre una casilla, la convierte en campo de obsidiana y quema las pasarelas que la tocan.",
-    "terrain": "campo_obsidiana", "cards": 3, "tiles": 1
+    "terrain": "campo_obsidiana", "tiles": 1
   },
   "contracts": [
     {"id": "red_pasarelas", "name": "Red de pasarelas (6 pasarelas)", "type": "routes", "value": 6, "prestige": 2},

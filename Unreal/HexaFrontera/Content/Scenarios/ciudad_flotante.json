@@ -25,7 +25,7 @@
   "event": {
     "type": "platform_swap", "name": "Desacople",
     "description": "Dos plataformas se sueltan e intercambian su lugar.",
-    "cards": 4, "tiles": 1
+    "tiles": 1
   },
   "contracts": [
     {"id": "red_puentes", "name": "Red de puentes (6 puentes)", "type": "routes", "value": 6, "prestige": 2},

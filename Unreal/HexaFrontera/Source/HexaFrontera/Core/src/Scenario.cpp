@@ -233,7 +233,6 @@ bool LoadScenarioFromJson(const std::string& text, Scenario& out, std::string& e
     }
     out.worldEvent.name = worldEvent->GetString("name", worldEvent->GetString("type"));
     out.worldEvent.description = worldEvent->GetString("description");
-    out.worldEvent.cards = worldEvent->GetInt("cards", 3);
     out.worldEvent.tiles = worldEvent->GetInt("tiles", 1);
     out.worldEvent.duration = worldEvent->GetInt("duration", 2);
     if (out.worldEvent.kind == WorldEventKind::Lava) {

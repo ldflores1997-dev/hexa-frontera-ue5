@@ -81,7 +81,8 @@ double Bot::ScoreVertex(const Game& game, int player, int vertex) {
         if (t.terrain < 0) continue;
         const int resource = scenario.terrains[static_cast<size_t>(t.terrain)].resource;
         if (resource < 0) continue;
-        double value = 1.0;
+        // Vale más una casilla con un número que sale seguido (6 y 8: 5 de 36; 2 y 12: 1 de 36).
+        double value = DiceWays(t.number) / 3.0;
         if (t.blockedRounds > 0) value -= 0.4;
         if (t.frostRounds > 0) value -= 0.2;
         if (!owned[static_cast<size_t>(resource)] && !counted[static_cast<size_t>(resource)]) value += 0.6;
@@ -101,26 +102,30 @@ Action Bot::ChooseAction(const Game& game, int actionsThisTurn) {
         return Action::Route(BestRoute(game, player, game.LegalRouteEdges(player), game.SetupVertex()));
     }
 
-    if (game.GetPhase() == Phase::AwaitPulse) {
+    if (game.GetPhase() == Phase::AwaitRoll) {
         if (me.influence >= 3 && game.BoostedTile() < 0) {
+            // Refuerza donde tiene más construcciones; a igualdad, la casilla que menos sale con los dados.
             int bestTile = -1;
-            int bestLevel = 0;
+            int bestScore = 0;
             const auto& tiles = game.GetBoard().Tiles();
             for (size_t t = 0; t < tiles.size(); ++t) {
-                if (tiles[t].terrain < 0 || scenario.terrains[static_cast<size_t>(tiles[t].terrain)].resource < 0) continue;
+                if (tiles[t].terrain < 0 || tiles[t].blockedRounds > 0 ||
+                    scenario.terrains[static_cast<size_t>(tiles[t].terrain)].resource < 0)
+                    continue;
                 int level = 0;
                 for (int vertex : tiles[t].vertices) {
                     if (game.Buildings()[static_cast<size_t>(vertex)].owner == player)
                         level += game.Buildings()[static_cast<size_t>(vertex)].level;
                 }
-                if (level > bestLevel) {
-                    bestLevel = level;
+                const int score = level * 10 - DiceWays(tiles[t].number);
+                if (level > 0 && score > bestScore) {
+                    bestScore = score;
                     bestTile = static_cast<int>(t);
                 }
             }
             if (bestTile >= 0) return Action::BoostTile(bestTile);
         }
-        return Action::Reveal();
+        return Action::Roll();
     }
 
     if (game.GetPhase() != Phase::Main || actionsThisTurn >= kMaxBotActionsPerTurn) return Action::End();

@@ -16,7 +16,7 @@ const char* ActionTypeName(ActionType type) {
         case ActionType::UpgradeCenter: return "UpgradeCenter";
         case ActionType::PublicWork: return "PublicWork";
         case ActionType::Boost: return "Boost";
-        case ActionType::RevealPulse: return "RevealPulse";
+        case ActionType::RollDice: return "RollDice";
         case ActionType::MarketBuy: return "MarketBuy";
         case ActionType::MarketSell: return "MarketSell";
         case ActionType::PlayerTrade: return "PlayerTrade";
@@ -51,9 +51,8 @@ bool Game::Init(const Scenario& scenarioDef, const std::vector<std::string>& pla
     contractOwners.assign(scenario.contracts.size(), -1);
     marketStock.assign(resourceCount, scenario.marketStartStock);
 
-    BuildDeck();
-    hasPulse = false;
-    lastPulse = PulseCard();
+    hasRolled = false;
+    lastDice[0] = lastDice[1] = 0;
     phase = Phase::Setup;
     setupStep = 0;
     setupNeedsRoute = false;
@@ -63,42 +62,6 @@ bool Game::Init(const Scenario& scenarioDef, const std::vector<std::string>& pla
     winner = -1;
     boostedTile = -1;
     return true;
-}
-
-void Game::BuildDeck() {
-    std::vector<int> producing;
-    for (size_t t = 0; t < scenario.terrains.size(); ++t) {
-        if (scenario.terrains[t].resource >= 0 && scenario.terrains[t].count > 0) producing.push_back(static_cast<int>(t));
-    }
-    deck.clear();
-    for (size_t i = 0; i < producing.size(); ++i) {
-        PulseCard single;
-        single.terrainA = producing[i];
-        single.intensity = 1;
-        deck.push_back(single);
-        for (size_t j = i + 1; j < producing.size(); ++j) {
-            PulseCard pair;
-            pair.terrainA = producing[i];
-            pair.terrainB = producing[j];
-            pair.intensity = 1;
-            deck.push_back(pair);
-        }
-    }
-    for (int i = 0; i < scenario.worldEvent.cards; ++i) {
-        PulseCard eventCard;
-        eventCard.isEvent = true;
-        deck.push_back(eventCard);
-    }
-    rng.Shuffle(deck);
-    deckPos = 0;
-}
-
-PulseCard Game::DrawCard() {
-    if (deckPos >= deck.size()) {
-        rng.Shuffle(deck);
-        deckPos = 0;
-    }
-    return deck[deckPos++];
 }
 
 int Game::SetupPlayerForStep(int step) const {
@@ -288,7 +251,7 @@ void Game::StartTurn(std::vector<GameEvent>& events) {
     Player& p = players[static_cast<size_t>(currentPlayer)];
     p.influence = std::min(kMaxInfluence, p.influence + p.centers);
     boostedTile = -1;
-    phase = Phase::AwaitPulse;
+    phase = Phase::AwaitRoll;
     GameEvent started;
     started.type = EventType::TurnStarted;
     started.player = currentPlayer;
@@ -308,20 +271,23 @@ void Game::TickStatuses() {
     }
 }
 
-void Game::Produce(const PulseCard& card, std::vector<GameEvent>& events) {
+void Game::Produce(int roll, std::vector<GameEvent>& events) {
     const std::vector<Tile>& tiles = board.Tiles();
     for (size_t t = 0; t < tiles.size(); ++t) {
         const Tile& tile = tiles[t];
         if (tile.terrain < 0 || tile.blockedRounds > 0) continue;
-        if (tile.terrain != card.terrainA && tile.terrain != card.terrainB) continue;
+        // Produce si sale su número; la casilla reforzada produce igual aunque no salga.
+        const bool matched = tile.number == roll;
+        const bool boosted = boostedTile == static_cast<int>(t);
+        if (!matched && !boosted) continue;
         const int resource = scenario.terrains[static_cast<size_t>(tile.terrain)].resource;
         if (resource < 0) continue;
         for (int vertex : tile.vertices) {
             const Building& building = buildings[static_cast<size_t>(vertex)];
             if (building.owner < 0) continue;
-            int amount = card.intensity * building.level;
+            int amount = matched ? kDiceYield * building.level : building.level;
             if (tile.frostRounds > 0) amount /= 2;
-            if (boostedTile == static_cast<int>(t)) amount += 1;
+            if (matched && boosted) amount += 1;
             if (amount <= 0) continue;
             players[static_cast<size_t>(building.owner)].resources[static_cast<size_t>(resource)] += amount;
             GameEvent produced;
@@ -351,6 +317,11 @@ void Game::ApplyWorldEvent(std::vector<GameEvent>& events) {
             for (int i = 0; i < affected && i < static_cast<int>(candidates.size()); ++i) {
                 const int t = candidates[static_cast<size_t>(i)];
                 tiles[static_cast<size_t>(t)].terrain = def.terrain;
+                if (tiles[static_cast<size_t>(t)].number == 0) {
+                    // Una casilla que no producía (el cráter) recibe un número al convertirse.
+                    static const int kNumbers[] = {2, 3, 4, 5, 6, 8, 9, 10, 11, 12};
+                    tiles[static_cast<size_t>(t)].number = kNumbers[rng.NextInt(10)];
+                }
                 GameEvent lava;
                 lava.type = EventType::Lava;
                 lava.tile = t;
@@ -412,6 +383,7 @@ void Game::ApplyWorldEvent(std::vector<GameEvent>& events) {
                 Tile& a = tiles[static_cast<size_t>(first)];
                 Tile& b = tiles[static_cast<size_t>(second)];
                 std::swap(a.terrain, b.terrain);
+                std::swap(a.number, b.number);
                 std::swap(a.blockedRounds, b.blockedRounds);
                 std::swap(a.frostRounds, b.frostRounds);
                 GameEvent swap;
@@ -500,7 +472,7 @@ ApplyResult Game::Apply(const Action& action) {
     Player& p = players[static_cast<size_t>(player)];
     const int resourceCount = static_cast<int>(scenario.resources.size());
 
-    if (phase == Phase::AwaitPulse) {
+    if (phase == Phase::AwaitRoll) {
         if (action.type == ActionType::Boost) {
             if (boostedTile >= 0) return Fail("Ya reforzaste una casilla este turno");
             if (p.influence < 1) return Fail("No tenés Influencia");
@@ -520,16 +492,28 @@ ApplyResult Game::Apply(const Action& action) {
             result.ok = true;
             return result;
         }
-        if (action.type != ActionType::RevealPulse) return Fail("Primero revelá la carta de Pulso");
-        lastPulse = DrawCard();
-        hasPulse = true;
-        GameEvent revealed;
-        revealed.type = EventType::PulseRevealed;
-        revealed.player = player;
-        revealed.amount = lastPulse.intensity;
-        result.events.push_back(revealed);
-        if (lastPulse.isEvent) ApplyWorldEvent(result.events);
-        else Produce(lastPulse, result.events);
+        if (action.type != ActionType::RollDice) return Fail("Primero tirá los dados");
+        const bool external = action.dice[0] >= 0 || action.dice[1] >= 0;
+        if (external) {
+            for (int die : action.dice) {
+                if (die < 1 || die > 6) return Fail("Dados inválidos");
+            }
+            lastDice[0] = action.dice[0];
+            lastDice[1] = action.dice[1];
+        } else {
+            lastDice[0] = rng.NextInt(6) + 1;
+            lastDice[1] = rng.NextInt(6) + 1;
+        }
+        hasRolled = true;
+        const int roll = LastRoll();
+        GameEvent rolled;
+        rolled.type = EventType::DiceRolled;
+        rolled.player = player;
+        rolled.amount = roll;
+        result.events.push_back(rolled);
+        // Con 7 nadie produce por número: ocurre el evento del mundo. La casilla reforzada produce igual.
+        if (roll == kWorldEventRoll) ApplyWorldEvent(result.events);
+        Produce(roll, result.events);
         boostedTile = -1;
         phase = Phase::Main;
         result.ok = true;
@@ -667,8 +651,8 @@ ApplyResult Game::Apply(const Action& action) {
             return result;
         }
         case ActionType::Boost:
-        case ActionType::RevealPulse:
-            return Fail("El Pulso de este turno ya se reveló");
+        case ActionType::RollDice:
+            return Fail("Ya tiraste los dados este turno");
     }
 
     CheckContractsAndVictory(player, result.events);

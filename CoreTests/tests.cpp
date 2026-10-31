@@ -163,7 +163,7 @@ TEST("Preparación: orden serpiente, distancia entre puestos y ruta pegada al pu
         EXPECT(game.Apply(Action::Outpost(game.LegalOutpostVertices(game.CurrentPlayer()).front())).ok);
         EXPECT(game.Apply(Action::Route(game.LegalRouteEdges(game.CurrentPlayer()).front())).ok);
     }
-    EXPECT(game.GetPhase() == Phase::AwaitPulse);
+    EXPECT(game.GetPhase() == Phase::AwaitRoll);
     EXPECT_EQ(game.CurrentPlayer(), 0);
     for (const Player& p : game.Players()) {
         EXPECT_EQ(p.outposts, 2);
@@ -171,59 +171,147 @@ TEST("Preparación: orden serpiente, distancia entre puestos y ruta pegada al pu
     }
 }
 
-// ---------- Pulso y producción ----------
+// ---------- Dados y producción ----------
 
-// Calcula lo que debería producir la carta, a partir del estado antes de revelarla.
-static std::vector<std::vector<int>> ExpectedProduction(const Game& game, const PulseCard& card, int boostedTile) {
+TEST("Dados: números del 2 al 12 sin 7, solo en casillas que producen y sin 6 u 8 vecinos") {
+    for (const std::string& id : hftest::ScenarioIds()) {
+        const Scenario scenario = LoadScenario(id);
+        for (uint64_t seed = 1; seed <= 20; ++seed) {
+            Board board;
+            board.Build(scenario, seed);
+            std::map<int, int> counts;
+            for (size_t t = 0; t < board.Tiles().size(); ++t) {
+                const Tile& tile = board.Tiles()[t];
+                const bool produces = scenario.terrains[static_cast<size_t>(tile.terrain)].resource >= 0;
+                EXPECT(produces ? (tile.number >= 2 && tile.number <= 12 && tile.number != 7) : tile.number == 0);
+                ++counts[tile.number];
+                if (tile.number != 6 && tile.number != 8) continue;
+                for (int neighbor : board.TileNeighbors(static_cast<int>(t))) {
+                    const int other = board.Tiles()[static_cast<size_t>(neighbor)].number;
+                    EXPECT(other != 6 && other != 8);
+                }
+            }
+            // Con 18 casillas productivas sale una tanda exacta: un 2, un 12 y dos de cada otro número.
+            if (board.Tiles().size() == 19) {
+                EXPECT_EQ(counts[2], 1);
+                EXPECT_EQ(counts[12], 1);
+                EXPECT_EQ(counts[6], 2);
+                EXPECT_EQ(counts[8], 2);
+            }
+        }
+        Board a;
+        Board b;
+        a.Build(scenario, 99);
+        b.Build(scenario, 99);
+        for (size_t t = 0; t < a.Tiles().size(); ++t) EXPECT_EQ(a.Tiles()[t].number, b.Tiles()[t].number);
+    }
+}
+
+TEST("Dados: probabilidad de cada suma") {
+    EXPECT_EQ(DiceWays(2), 1);
+    EXPECT_EQ(DiceWays(6), 5);
+    EXPECT_EQ(DiceWays(7), 6);
+    EXPECT_EQ(DiceWays(8), 5);
+    EXPECT_EQ(DiceWays(12), 1);
+    EXPECT_EQ(DiceWays(1), 0);
+    int total = 0;
+    for (int sum = 2; sum <= 12; ++sum) total += DiceWays(sum);
+    EXPECT_EQ(total, 36);
+}
+
+// Calcula lo que debería producir la tirada, a partir del estado antes de tirar.
+static std::vector<std::vector<int>> ExpectedProduction(const Game& game, int roll, int boostedTile) {
     std::vector<std::vector<int>> gain(game.Players().size(), std::vector<int>(game.GetScenario().resources.size(), 0));
     const auto& tiles = game.GetBoard().Tiles();
     for (size_t t = 0; t < tiles.size(); ++t) {
         const Tile& tile = tiles[t];
-        if (tile.blockedRounds > 0 || (tile.terrain != card.terrainA && tile.terrain != card.terrainB)) continue;
+        const bool matched = tile.number == roll;
+        const bool boosted = boostedTile == static_cast<int>(t);
+        if (tile.blockedRounds > 0 || (!matched && !boosted)) continue;
         const int resource = game.GetScenario().terrains[static_cast<size_t>(tile.terrain)].resource;
         if (resource < 0) continue;
         for (int v : tile.vertices) {
             const Building& b = game.Buildings()[static_cast<size_t>(v)];
             if (b.owner < 0) continue;
-            int amount = card.intensity * b.level;
+            int amount = matched ? kDiceYield * b.level : b.level;
             if (tile.frostRounds > 0) amount /= 2;
-            if (boostedTile == static_cast<int>(t)) amount += 1;
+            if (matched && boosted) amount += 1;
             gain[static_cast<size_t>(b.owner)][static_cast<size_t>(resource)] += amount;
         }
     }
     return gain;
 }
 
-TEST("Pulso: la producción coincide con la carta en los 4 escenarios") {
+static void ExpectGain(const Game& before, const Game& after, const std::vector<std::vector<int>>& gain) {
+    for (size_t p = 0; p < after.Players().size(); ++p) {
+        for (size_t r = 0; r < gain[p].size(); ++r) {
+            EXPECT_EQ(after.Players()[p].resources[r] - before.Players()[p].resources[r], gain[p][r]);
+        }
+    }
+}
+
+TEST("Dados: producen las casillas con el número que sale, en los 4 escenarios") {
     for (const std::string& id : hftest::ScenarioIds()) {
         Game game;
         std::string error;
         EXPECT(game.Init(LoadScenario(id), Names(4), 11, error));
         EXPECT(hftest::FinishSetup(game));
         int checked = 0;
-        for (int turn = 0; turn < 60; ++turn) {
-            EXPECT(game.GetPhase() == Phase::AwaitPulse);
-            // Probamos hacer un intercambio antes del Pulso: no se permite.
+        std::map<int, int> rolls;
+        for (int turn = 0; turn < 120; ++turn) {
+            EXPECT(game.GetPhase() == Phase::AwaitRoll);
+            // Antes de tirar no se puede comerciar.
             EXPECT(!game.Apply(Action::Sell(0)).ok);
             Game before = game;
-            ApplyResult result = game.Apply(Action::Reveal());
+            ApplyResult result = game.Apply(Action::Roll());
             EXPECT(result.ok);
-            if (!game.LastPulse().isEvent) {
-                const auto gain = ExpectedProduction(before, game.LastPulse(), -1);
-                for (size_t p = 0; p < game.Players().size(); ++p) {
-                    for (size_t r = 0; r < gain[p].size(); ++r) {
-                        EXPECT_EQ(game.Players()[p].resources[r] - before.Players()[p].resources[r], gain[p][r]);
-                    }
-                }
+            EXPECT(game.LastDie(0) >= 1 && game.LastDie(0) <= 6);
+            EXPECT(game.LastDie(1) >= 1 && game.LastDie(1) <= 6);
+            ++rolls[game.LastRoll()];
+            if (game.LastRoll() != kWorldEventRoll) {
+                ExpectGain(before, game, ExpectedProduction(before, game.LastRoll(), -1));
                 ++checked;
             }
+            EXPECT(!game.Apply(Action::Roll()).ok); // una tirada por turno
             EXPECT(game.Apply(Action::End()).ok);
         }
-        EXPECT(checked > 30);
+        EXPECT(checked > 80);
+        EXPECT(rolls[7] > rolls[2]); // el 7 sale mucho más que el 2
     }
 }
 
-TEST("Refuerzo: gasta Influencia, solo junto a construcciones propias y suma 1 por construcción") {
+TEST("Dados: una tirada hecha afuera (física) usa esos valores y se valida") {
+    Game game;
+    std::string error;
+    EXPECT(game.Init(LoadScenario("andes_valles"), Names(3), 17, error));
+    EXPECT(hftest::FinishSetup(game));
+    EXPECT(!game.Apply(Action::RollWith(0, 3)).ok);
+    EXPECT(!game.Apply(Action::RollWith(4, 7)).ok);
+    EXPECT(!game.Apply(Action::RollWith(-1, 5)).ok);
+    EXPECT(game.GetPhase() == Phase::AwaitRoll);
+    Game before = game;
+    ApplyResult result = game.Apply(Action::RollWith(2, 4));
+    EXPECT(result.ok);
+    EXPECT_EQ(game.LastRoll(), 6);
+    EXPECT(result.events.front().type == EventType::DiceRolled);
+    EXPECT_EQ(result.events.front().amount, 6);
+    ExpectGain(before, game, ExpectedProduction(before, 6, -1));
+}
+
+TEST("Dados: con 7 ocurre el evento del mundo y nadie produce por número") {
+    Game game;
+    std::string error;
+    EXPECT(game.Init(LoadScenario("ciudad_flotante"), Names(2), 5, error));
+    EXPECT(hftest::FinishSetup(game));
+    const auto resources = game.Players()[0].resources;
+    ApplyResult result = game.Apply(Action::RollWith(3, 4));
+    EXPECT(result.ok);
+    EXPECT_EQ(static_cast<int>(std::count_if(result.events.begin(), result.events.end(),
+                                             [](const GameEvent& e) { return e.type == EventType::PlatformSwap; })), 1);
+    EXPECT(game.Players()[0].resources == resources);
+}
+
+TEST("Refuerzo: gasta Influencia, solo junto a construcciones propias; produce aunque no salga su número") {
     Game game;
     std::string error;
     EXPECT(game.Init(LoadScenario("islas_volcanicas"), Names(2), 3, error));
@@ -235,21 +323,35 @@ TEST("Refuerzo: gasta Influencia, solo junto a construcciones propias y suma 1 p
         bool mine = false;
         for (int v : game.GetBoard().Tiles()[t].vertices)
             if (game.Buildings()[static_cast<size_t>(v)].owner == player) mine = true;
-        if (mine && ownTile < 0) ownTile = static_cast<int>(t);
+        if (mine && ownTile < 0 && game.GetBoard().Tiles()[t].number > 0) ownTile = static_cast<int>(t);
         if (!mine && foreignTile < 0) foreignTile = static_cast<int>(t);
     }
+    EXPECT(ownTile >= 0);
     EXPECT(!game.Apply(Action::BoostTile(foreignTile)).ok);
     const int influence = game.Players()[static_cast<size_t>(player)].influence;
     EXPECT(game.Apply(Action::BoostTile(ownTile)).ok);
     EXPECT_EQ(game.Players()[static_cast<size_t>(player)].influence, influence - 1);
     EXPECT(!game.Apply(Action::BoostTile(ownTile)).ok); // una vez por turno
-    Game before = game;
-    EXPECT(game.Apply(Action::Reveal()).ok);
-    if (!game.LastPulse().isEvent) {
-        const auto gain = ExpectedProduction(before, game.LastPulse(), ownTile);
-        for (size_t p = 0; p < game.Players().size(); ++p)
-            for (size_t r = 0; r < gain[p].size(); ++r)
-                EXPECT_EQ(game.Players()[p].resources[r] - before.Players()[p].resources[r], gain[p][r]);
+
+    // Si sale su número: el doble por nivel más 1 por construcción.
+    const int number = game.GetBoard().Tiles()[static_cast<size_t>(ownTile)].number;
+    const int first = number <= 7 ? 1 : number - 6;
+    Game matched = game;
+    EXPECT(matched.Apply(Action::RollWith(first, number - first)).ok);
+    ExpectGain(game, matched, ExpectedProduction(game, number, ownTile));
+
+    // Si no sale (incluso con 7): produce 1 por nivel igual.
+    for (int roll : {number == 2 ? 3 : 2, kWorldEventRoll}) {
+        if (roll == number) continue;
+        Game missed = game;
+        const int a = roll <= 7 ? 1 : roll - 6;
+        EXPECT(missed.Apply(Action::RollWith(a, roll - a)).ok);
+        if (roll != kWorldEventRoll) ExpectGain(game, missed, ExpectedProduction(game, roll, ownTile));
+        // Con 7 el evento puede cambiar la casilla; alcanza con que el jugador reciba algo.
+        int gained = 0;
+        for (size_t r = 0; r < game.GetScenario().resources.size(); ++r)
+            gained += missed.Players()[static_cast<size_t>(player)].resources[r] - game.Players()[static_cast<size_t>(player)].resources[r];
+        EXPECT(gained > 0);
     }
 }
 
@@ -260,7 +362,7 @@ TEST("Mercado: comprar sube el precio, vender lo baja, y vuelve al equilibrio co
     std::string error;
     EXPECT(game.Init(LoadScenario("colonia_marte"), Names(2), 9, error));
     EXPECT(hftest::FinishSetup(game));
-    EXPECT(game.Apply(Action::Reveal()).ok);
+    EXPECT(game.Apply(Action::Roll()).ok);
 
     const int start = game.MarketBuyPrice(0);
     const int coins = game.Players()[0].coins;
@@ -279,7 +381,7 @@ TEST("Mercado: comprar sube el precio, vender lo baja, y vuelve al equilibrio co
     const int depleted = game.MarketStock(1);
     EXPECT(depleted < game.GetScenario().marketStartStock);
     EXPECT(game.Apply(Action::End()).ok); // jugador 1
-    EXPECT(game.Apply(Action::Reveal()).ok);
+    EXPECT(game.Apply(Action::Roll()).ok);
     EXPECT(game.Apply(Action::End()).ok); // nueva ronda
     EXPECT_EQ(game.MarketStock(1), depleted + 1);
 }
@@ -291,15 +393,16 @@ TEST("Obra pública: cuesta 1 de cada recurso, da prestigio y tiene límite") {
     std::string error;
     EXPECT(game.Init(LoadScenario("islas_volcanicas"), Names(2), 13, error));
     EXPECT(hftest::FinishSetup(game));
-    EXPECT(game.Apply(Action::Reveal()).ok);
+    EXPECT(game.Apply(Action::Roll()).ok);
     const PieceDef& work = game.GetScenario().Piece(PieceKind::Work);
     EXPECT_EQ(work.limit, 3);
     for (int amount : work.cost) EXPECT_EQ(amount, 1);
     // Pasan turnos sin construir nada hasta que el jugador 0 junta 1 de cada recurso.
+    // Lo que no produce lo compra en el mercado, vendiendo lo que le sobra.
     int built = 0;
-    for (int attempt = 0; attempt < 400 && built < work.limit + 1; ++attempt) {
+    for (int attempt = 0; attempt < 600 && built < work.limit + 1; ++attempt) {
         if (game.GetPhase() == Phase::Finished) break;
-        if (game.GetPhase() == Phase::AwaitPulse) { EXPECT(game.Apply(Action::Reveal()).ok); continue; }
+        if (game.GetPhase() == Phase::AwaitRoll) { EXPECT(game.Apply(Action::Roll()).ok); continue; }
         if (game.CurrentPlayer() != 0) { EXPECT(game.Apply(Action::End()).ok); continue; }
         const int prestige = game.Prestige(0);
         if (game.CanBuild(0, PieceKind::Work)) {
@@ -307,9 +410,16 @@ TEST("Obra pública: cuesta 1 de cada recurso, da prestigio y tiene límite") {
             if (game.GetPhase() == Phase::Finished) break;
             EXPECT_EQ(game.Prestige(0), prestige + work.prestige);
             ++built;
-        } else {
-            EXPECT(game.Apply(Action::End()).ok);
+            continue;
         }
+        const Player& me = game.Players()[0];
+        Action trade = Action::End();
+        for (int r = 0; r < game.GetScenario().ResourceCount(); ++r) {
+            const size_t i = static_cast<size_t>(r);
+            if (me.resources[i] == 0 && game.MarketStock(r) > 0 && me.coins >= game.MarketBuyPrice(r)) trade = Action::Buy(r);
+            else if (me.resources[i] > 2 && trade.type == ActionType::EndTurn) trade = Action::Sell(r);
+        }
+        EXPECT(game.Apply(trade).ok);
     }
     EXPECT(built >= 1);
     EXPECT(game.Players()[0].works <= work.limit);
@@ -324,7 +434,7 @@ TEST("Intercambio: valida que ambos tengan lo ofrecido") {
     std::string error;
     EXPECT(game.Init(LoadScenario("islas_volcanicas"), Names(2), 21, error));
     EXPECT(hftest::FinishSetup(game));
-    EXPECT(game.Apply(Action::Reveal()).ok);
+    EXPECT(game.Apply(Action::Roll()).ok);
     const size_t n = game.GetScenario().resources.size();
     int mine = -1;
     int theirs = -1;
@@ -355,12 +465,12 @@ TEST("Intercambio: valida que ambos tengan lo ofrecido") {
 static bool RunUntilWorldEvent(Game& game, Game& before, std::vector<GameEvent>& events) {
     int actions = 0;
     for (int guard = 0; guard < 20000 && game.GetPhase() != Phase::Finished; ++guard) {
-        if (game.GetPhase() == Phase::AwaitPulse) {
+        if (game.GetPhase() == Phase::AwaitRoll) {
             before = game;
-            ApplyResult result = game.Apply(Action::Reveal());
+            ApplyResult result = game.Apply(Action::Roll());
             if (!result.ok) return false;
             actions = 0;
-            if (game.LastPulse().isEvent) {
+            if (game.LastRoll() == kWorldEventRoll) {
                 events = result.events;
                 return true;
             }
@@ -416,8 +526,8 @@ TEST("Evento tormenta: bloquea 3 casillas 2 rondas y no producen") {
     }
     // Durante el resto de la ronda, esas casillas no producen nada.
     EXPECT(game.Apply(Action::End()).ok);
-    while (game.CurrentPlayer() != 0 && game.GetPhase() == Phase::AwaitPulse) {
-        ApplyResult result = game.Apply(Action::Reveal());
+    while (game.CurrentPlayer() != 0 && game.GetPhase() == Phase::AwaitRoll) {
+        ApplyResult result = game.Apply(Action::Roll());
         for (const GameEvent& e : result.events) {
             if (e.type == EventType::Produced)
                 EXPECT(std::find(stormed.begin(), stormed.end(), e.tile) == stormed.end());

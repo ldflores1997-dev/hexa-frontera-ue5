@@ -4,6 +4,12 @@ project(HexaFronteraCore CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Fuentes en UTF-8 (tildes en textos y mensajes) y preprocesador estándar: el clásico de MSVC
+# no sabe convertir en texto un literal R"(...)" dentro de EXPECT.
+if(MSVC)
+  add_compile_options(/utf-8 /Zc:preprocessor)
+endif()
+
 # El núcleo vive dentro del módulo de Unreal; acá se compila solo, sin el motor.
 set(HF_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../Unreal/HexaFrontera/Source/HexaFrontera/Core)
 set(HF_SCENARIO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../Unreal/HexaFrontera/Content/Scenarios)

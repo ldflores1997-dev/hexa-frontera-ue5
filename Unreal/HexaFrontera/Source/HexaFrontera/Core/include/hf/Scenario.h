@@ -45,8 +45,7 @@ struct WorldEventDef {
     WorldEventKind kind = WorldEventKind::DustStorm;
     std::string name;
     std::string description;
-    int cards = 3;        // cartas de evento en el mazo de Pulso
-    int tiles = 1;        // casillas afectadas
+    int tiles = 1;        // casillas afectadas (el evento ocurre cuando los dados suman 7)
     int duration = 2;     // rondas que dura (tormenta, helada)
     int terrain = -1;     // terreno resultante (lava)
 };

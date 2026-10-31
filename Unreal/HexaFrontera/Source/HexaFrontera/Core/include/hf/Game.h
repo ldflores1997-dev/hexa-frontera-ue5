@@ -15,7 +15,7 @@ namespace hf {
 
 enum class Phase {
     Setup,      // cada jugador coloca 2 puestos y 2 rutas gratis (orden serpiente)
-    AwaitPulse, // inicio de turno: se puede reforzar una casilla y luego se revela el Pulso
+    AwaitRoll,  // inicio de turno: se puede reforzar una casilla y luego se tiran los dados
     Main,       // construir, comerciar y terminar el turno
     Finished,
 };
@@ -26,7 +26,7 @@ enum class ActionType {
     UpgradeCenter, // target = vértice
     PublicWork,    // obra pública: prestigio sin ocupar lugar en el tablero
     Boost,         // target = casilla
-    RevealPulse,
+    RollDice,      // dice = valores (1-6) si los dados se tiraron afuera, -1 para que los tire el núcleo
     MarketBuy,     // resource
     MarketSell,    // resource
     PlayerTrade,   // otherPlayer, give, get
@@ -38,6 +38,7 @@ struct Action {
     int target = -1;
     int resource = -1;
     int otherPlayer = -1;
+    int dice[2] = {-1, -1};
     std::vector<int> give;
     std::vector<int> get;
 
@@ -46,7 +47,14 @@ struct Action {
     static Action Upgrade(int vertex) { Action a; a.type = ActionType::UpgradeCenter; a.target = vertex; return a; }
     static Action Work() { Action a; a.type = ActionType::PublicWork; return a; }
     static Action BoostTile(int tile) { Action a; a.type = ActionType::Boost; a.target = tile; return a; }
-    static Action Reveal() { Action a; a.type = ActionType::RevealPulse; return a; }
+    static Action Roll() { Action a; a.type = ActionType::RollDice; return a; }
+    // Usa el resultado de dados tirados afuera del núcleo (por ejemplo, con física en el motor).
+    static Action RollWith(int first, int second) {
+        Action a = Roll();
+        a.dice[0] = first;
+        a.dice[1] = second;
+        return a;
+    }
     static Action Buy(int resource) { Action a; a.type = ActionType::MarketBuy; a.resource = resource; return a; }
     static Action Sell(int resource) { Action a; a.type = ActionType::MarketSell; a.resource = resource; return a; }
     static Action End() { return Action(); }
@@ -62,7 +70,7 @@ struct Action {
 
 enum class EventType {
     TurnStarted,
-    PulseRevealed,   // index = carta (ver LastPulse)
+    DiceRolled,      // player, amount = suma (ver LastDice)
     Produced,        // player, tile, resource, amount
     Boosted,         // player, tile
     OutpostBuilt,    // player, index = vértice
@@ -90,12 +98,10 @@ struct GameEvent {
     int index = -1;
 };
 
-struct PulseCard {
-    bool isEvent = false;
-    int terrainA = -1;
-    int terrainB = -1; // -1 si la carta nombra un solo terreno
-    int intensity = 1;
-};
+// Suma de dados que dispara el evento del mundo en lugar de producir.
+const int kWorldEventRoll = 7;
+// Recursos que da cada nivel de construcción cuando sale el número de la casilla.
+const int kDiceYield = 2;
 
 struct Player {
     std::string name;
@@ -153,9 +159,10 @@ public:
     int Round() const { return round; }
     int Winner() const { return winner; }
     int BoostedTile() const { return boostedTile; }
-    const PulseCard& LastPulse() const { return lastPulse; }
-    bool HasPulse() const { return hasPulse; }
-    int PulseCardsLeft() const { return static_cast<int>(deck.size() - deckPos); }
+    // Últimos dados tirados (0 antes de la primera tirada).
+    int LastDie(int index) const { return lastDice[index]; }
+    int LastRoll() const { return lastDice[0] + lastDice[1]; }
+    bool HasRolled() const { return hasRolled; }
 
     // En la preparación: true si el jugador actual debe poner la ruta de su último puesto.
     bool SetupNeedsRoute() const { return setupNeedsRoute; }
@@ -170,10 +177,8 @@ private:
     std::vector<int> routeOwners;      // por arista, -1 libre
     std::vector<int> contractOwners;   // por contrato, -1 libre
     std::vector<int> marketStock;
-    std::vector<PulseCard> deck;
-    size_t deckPos = 0;
-    PulseCard lastPulse;
-    bool hasPulse = false;
+    int lastDice[2] = {0, 0};
+    bool hasRolled = false;
     Phase phase = Phase::Setup;
     int currentPlayer = 0;
     int round = 0;
@@ -183,13 +188,11 @@ private:
     bool setupNeedsRoute = false;
     int setupVertex = -1;
 
-    void BuildDeck();
-    PulseCard DrawCard();
     bool VertexFreeByDistance(int vertex) const;
     bool RouteTouchesVertexFor(int player, int vertex, int exceptEdge) const;
     void Pay(int player, const std::vector<int>& cost);
     void StartTurn(std::vector<GameEvent>& events);
-    void Produce(const PulseCard& card, std::vector<GameEvent>& events);
+    void Produce(int roll, std::vector<GameEvent>& events);
     void ApplyWorldEvent(std::vector<GameEvent>& events);
     void TickStatuses();
     void CheckContractsAndVictory(int player, std::vector<GameEvent>& events);
