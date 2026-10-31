@@ -97,7 +97,7 @@ UStaticMesh* AHFBoardActor::TerrainMeshOverride(const FString& TerrainId) const
 }
 
 UStaticMeshComponent* AHFBoardActor::AddShape(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color,
-	TArray<TObjectPtr<UStaticMeshComponent>>& Owner, const FRotator& Rotation)
+	TArray<TObjectPtr<UStaticMeshComponent>>& OutComponents, const FRotator& Rotation)
 {
 	UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(this);
 	Component->SetStaticMesh(Mesh);
@@ -110,7 +110,7 @@ UStaticMeshComponent* AHFBoardActor::AddShape(UStaticMesh* Mesh, const FVector& 
 	{
 		Component->SetMaterial(0, Material);
 	}
-	Owner.Add(Component);
+	OutComponents.Add(Component);
 	return Component;
 }
 
@@ -488,8 +488,8 @@ void AHFBoardActor::RefreshPieces(const FHFMatch& Match)
 	const auto& Routes = Game.RouteOwners();
 	for (int32 E = 0; E < static_cast<int32>(Routes.size()); ++E)
 	{
-		const int32 Owner = Routes[static_cast<size_t>(E)];
-		if (Owner < 0)
+		const int32 RouteOwner = Routes[static_cast<size_t>(E)];
+		if (RouteOwner < 0)
 		{
 			continue;
 		}
@@ -498,7 +498,7 @@ void AHFBoardActor::RefreshPieces(const FHFMatch& Match)
 		const FVector Mid = (A + B) * 0.5f + FVector(0, 0, 12);
 		const float Length = FVector::Dist2D(A, B) * 0.62f;
 		const FRotator Rotation = (B - A).GetSafeNormal2D().Rotation();
-		const FLinearColor Color = PlayerColors[Owner % PlayerColors.Num()];
+		const FLinearColor Color = PlayerColors[RouteOwner % PlayerColors.Num()];
 		UStaticMeshComponent* Plank = AddShape(CubeMesh, Mid, FVector(Length / 100.0f, 0.22f, 0.18f), Color, PieceComponents, Rotation);
 		Animate({Plank}, PieceKey(1, E, 0));
 	}

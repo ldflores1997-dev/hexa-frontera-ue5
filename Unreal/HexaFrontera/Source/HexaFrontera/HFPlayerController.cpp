@@ -116,20 +116,20 @@ void AHFPlayerController::UpdateHighlights()
 		return;
 	}
 	const hf::Game& Game = Mode->GetMatch()->GetGame();
-	const int32 Player = Game.CurrentPlayer();
+	const int32 CurrentPlayer = Game.CurrentPlayer();
 	TArray<int32> Vertices;
 	TArray<int32> Edges;
 	TArray<int32> Tiles;
 	switch (Effective)
 	{
 	case EHFTool::Outpost:
-		for (int V : Game.LegalOutpostVertices(Player)) Vertices.Add(V);
+		for (int V : Game.LegalOutpostVertices(CurrentPlayer)) Vertices.Add(V);
 		break;
 	case EHFTool::Route:
-		for (int E : Game.LegalRouteEdges(Player)) Edges.Add(E);
+		for (int E : Game.LegalRouteEdges(CurrentPlayer)) Edges.Add(E);
 		break;
 	case EHFTool::Center:
-		for (int V : Game.LegalUpgradeVertices(Player)) Vertices.Add(V);
+		for (int V : Game.LegalUpgradeVertices(CurrentPlayer)) Vertices.Add(V);
 		break;
 	case EHFTool::Boost:
 	{
@@ -138,7 +138,7 @@ void AHFPlayerController::UpdateHighlights()
 		{
 			for (int V : BoardTiles[static_cast<size_t>(T)].vertices)
 			{
-				if (Game.Buildings()[static_cast<size_t>(V)].owner == Player)
+				if (Game.Buildings()[static_cast<size_t>(V)].owner == CurrentPlayer)
 				{
 					Tiles.Add(T);
 					break;
@@ -150,7 +150,7 @@ void AHFPlayerController::UpdateHighlights()
 	default:
 		break;
 	}
-	const FLinearColor Color = Board->PlayerColors.IsValidIndex(Player) ? Board->PlayerColors[Player] : FLinearColor::White;
+	const FLinearColor Color = Board->PlayerColors.IsValidIndex(CurrentPlayer) ? Board->PlayerColors[CurrentPlayer] : FLinearColor::White;
 	Board->SetHighlights(Vertices, Edges, Tiles, FLinearColor::LerpUsingHSV(Color, FLinearColor::White, 0.45f));
 }
 

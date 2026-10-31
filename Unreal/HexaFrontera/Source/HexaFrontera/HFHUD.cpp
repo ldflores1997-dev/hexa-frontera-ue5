@@ -18,10 +18,12 @@
 
 namespace
 {
-const FLinearColor PanelColor(0.015f, 0.018f, 0.025f, 0.78f);
-const FLinearColor TextColor(0.93f, 0.92f, 0.88f);
-const FLinearColor MutedColor(0.62f, 0.62f, 0.60f);
-const FLinearColor AccentColor(1.0f, 0.78f, 0.35f);
+// Slate usa colores lineales: FLinearColor(FColor) convierte desde sRGB, que es como se ven en pantalla.
+const FLinearColor PanelColor(FColor(0x21, 0x24, 0x2C, 199));
+const FLinearColor TextColor(FColor(0xED, 0xEB, 0xE0));
+const FLinearColor MutedColor(FColor(0x9A, 0x9A, 0x95));
+const FLinearColor AccentColor(FColor(0xFF, 0xC7, 0x59));
+const FLinearColor DangerColor(FColor(0xFF, 0x73, 0x59));
 
 FSlateFontInfo Font(int32 Size, bool bBold = false)
 {
@@ -39,12 +41,12 @@ TSharedRef<SWidget> Panel(TSharedRef<SWidget> Inner)
 		];
 }
 
-TSharedRef<STextBlock> Label(TAttribute<FText> Text, int32 Size = 13, bool bBold = false, FLinearColor Color = TextColor)
+TSharedRef<STextBlock> Label(TAttribute<FText> Text, int32 Size = 13, bool bBold = false, TAttribute<FSlateColor> Color = FSlateColor(TextColor))
 {
 	return SNew(STextBlock)
 		.Text(Text)
 		.Font(Font(Size, bBold))
-		.ColorAndOpacity(FSlateColor(Color))
+		.ColorAndOpacity(Color)
 		.AutoWrapText(true);
 }
 
@@ -67,6 +69,13 @@ TSharedRef<SButton> Button(TAttribute<FText> Text, TFunction<void()> OnClick, TA
 FText Str(const FString& Value)
 {
 	return FText::FromString(Value);
+}
+
+// Color del jugador aclarado para leerse sobre los paneles. Igual que en el panel de jugadores.
+FSlateColor PlayerTextColor(const AHFGameMode* Mode, int32 Player)
+{
+	const FLinearColor Color = Mode && Mode->GetBoard() && Mode->GetBoard()->PlayerColors.IsValidIndex(Player) ? Mode->GetBoard()->PlayerColors[Player] : TextColor;
+	return FSlateColor(FLinearColor::LerpUsingHSV(Color, FLinearColor::White, 0.25f));
 }
 }
 
@@ -328,7 +337,11 @@ TSharedRef<SWidget> AHFHUD::BuildGame()
 							const hf::Game& Game = M->GetMatch()->GetGame();
 							if (Game.GetPhase() == hf::Phase::Setup) return Str(FString::Printf(TEXT("Preparación · %s"), *M->GetMatch()->PlayerName(Game.CurrentPlayer())));
 							return Str(FString::Printf(TEXT("Ronda %d · Turno de %s"), Game.Round(), *M->GetMatch()->PlayerName(Game.CurrentPlayer())));
-						}), 18, true, AccentColor)
+						}), 18, true, TAttribute<FSlateColor>::CreateLambda([Mode]()
+						{
+							const AHFGameMode* M = Mode();
+							return M && M->GetMatch() ? PlayerTextColor(M, M->GetMatch()->GetGame().CurrentPlayer()) : FSlateColor(TextColor);
+						}))
 					]
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 4)
 					[
@@ -405,7 +418,7 @@ TSharedRef<SWidget> AHFHUD::BuildGame()
 				{
 					const AHFGameMode* M = GetHexGameMode();
 					return M ? Str(M->GetLastError()) : FText::GetEmpty();
-				}), 16, true, FLinearColor(1.0f, 0.45f, 0.35f)))
+				}), 16, true, DangerColor))
 			]
 		]
 		// Intercambio
@@ -437,7 +450,11 @@ TSharedRef<SWidget> AHFHUD::BuildGame()
 							const AHFGameMode* M = Mode();
 							if (!M || !M->GetMatch()) return FText::GetEmpty();
 							return Str(FString::Printf(TEXT("¡%s gana la partida!"), *M->GetMatch()->PlayerName(M->GetMatch()->GetGame().Winner())));
-						}), 28, true, AccentColor)
+						}), 28, true, TAttribute<FSlateColor>::CreateLambda([Mode]()
+						{
+							const AHFGameMode* M = Mode();
+							return M && M->GetMatch() ? PlayerTextColor(M, M->GetMatch()->GetGame().Winner()) : FSlateColor(TextColor);
+						}))
 					]
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 12, 0, 0)
 					[
@@ -466,7 +483,6 @@ TSharedRef<SWidget> AHFHUD::BuildPlayersPanel()
 	const int32 Count = static_cast<int32>(Mode->GetMatch()->GetGame().Players().size());
 	for (int32 Player = 0; Player < Count; ++Player)
 	{
-		const FLinearColor Color = Mode->GetBoard() && Mode->GetBoard()->PlayerColors.IsValidIndex(Player) ? Mode->GetBoard()->PlayerColors[Player] : TextColor;
 		Box->AddSlot().AutoHeight().Padding(0, 0, 0, 10)
 		[
 			SNew(SVerticalBox)
@@ -481,7 +497,7 @@ TSharedRef<SWidget> AHFHUD::BuildPlayersPanel()
 					const bool bCurrent = Game.CurrentPlayer() == Player && Game.GetPhase() != hf::Phase::Finished;
 					return Str(FString::Printf(TEXT("%s%s   Prestigio %d / %d"), bCurrent ? TEXT("» ") : TEXT(""), *Match.PlayerName(Player),
 						Game.Prestige(Player), Game.PrestigeTarget()));
-				}), 15, true, FLinearColor::LerpUsingHSV(Color, FLinearColor::White, 0.25f))
+				}), 15, true, PlayerTextColor(Mode, Player))
 			]
 			+ SVerticalBox::Slot().AutoHeight()
 			[

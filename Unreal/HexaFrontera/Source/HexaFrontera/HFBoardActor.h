@@ -158,7 +158,7 @@ private:
 	UMaterialInterface* TerrainMaterialOverride(const FString& TerrainId) const;
 	UStaticMesh* TerrainMeshOverride(const FString& TerrainId) const;
 	UStaticMeshComponent* AddShape(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color,
-		TArray<TObjectPtr<UStaticMeshComponent>>& Owner, const FRotator& Rotation = FRotator::ZeroRotator);
+		TArray<TObjectPtr<UStaticMeshComponent>>& OutComponents, const FRotator& Rotation = FRotator::ZeroRotator);
 	void BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, float Height, const FLinearColor& Color, UMaterialInterface* Override);
 	void AddDecoration(int32 Tile, const FString& Decoration, const FLinearColor& TerrainColor);
 	void ClearComponents(TArray<TObjectPtr<UStaticMeshComponent>>& Components);
