@@ -11,6 +11,15 @@ class SWidget;
 class SWeakWidget;
 class UTexture;
 
+// Pantallas del menú de inicio, en orden.
+enum class EMenuStep : uint8
+{
+	Title,   // portada: Jugar, Opciones, Salir
+	World,   // paso 1: elegir el mundo
+	Players, // paso 2: jugadores, bots y reloj
+	Options,
+};
+
 UCLASS()
 class HEXAFRONTERA_API AHFHUD : public AHUD
 {
@@ -24,6 +33,10 @@ public:
 
 	// Una carta sale volando desde la casilla que produjo hasta la mano del jugador.
 	void QueueCardFlight(int32 Player, int32 Resource, int32 Amount, const FVector& WorldLocation);
+
+	// Esc: en el menú vuelve un paso; en la partida cierra lo abierto o pausa.
+	void HandleEscape();
+	bool IsPaused() const { return bPaused; }
 
 private:
 	struct FCardFlight
@@ -76,10 +89,16 @@ private:
 	};
 
 	// Menú
+	EMenuStep MenuStep = EMenuStep::Title;
 	TArray<FScenarioInfo> Scenarios;
 	int32 SelectedScenario = 0;
 	int32 PlayerCount = 2;
 	bool Bots[4] = {false, true, true, true};
+
+	// Pausa y opciones
+	bool bPaused = false;
+	bool bOptionsOpen = false;
+	TArray<FIntPoint> Resolutions;
 
 	// Intercambio
 	bool bTradeOpen = false;
@@ -96,12 +115,23 @@ private:
 
 	void SetContent(TSharedRef<SWidget> NewContent);
 	void ShowMenu();
+	void SetMenuStep(EMenuStep Step);
+	// Elige un mundo (da la vuelta en los extremos) y muestra su tablero detrás del menú.
+	void SelectScenario(int32 Index);
+	void SetPaused(bool bPause);
+	void GoToMenu();
+	void QuitGame();
 	void ShowGame();
 	void StartMatch();
 	void ProposeTrade();
 	void ResetTrade();
 
 	TSharedRef<SWidget> BuildMenu();
+	TSharedRef<SWidget> BuildTitle();
+	TSharedRef<SWidget> BuildWorldStep();
+	TSharedRef<SWidget> BuildPlayersStep();
+	TSharedRef<SWidget> BuildOptions(TFunction<void()> OnBack);
+	TSharedRef<SWidget> BuildPause();
 	TSharedRef<SWidget> BuildGame();
 	TSharedRef<SWidget> BuildTimer();
 	TSharedRef<SWidget> BuildPlayersPanel();

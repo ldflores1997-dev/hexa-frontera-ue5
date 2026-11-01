@@ -1180,6 +1180,10 @@ void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome)
 		UHierarchicalInstancedStaticMeshComponent* Cover = NewObject<UHierarchicalInstancedStaticMeshComponent>(this);
 		Cover->SetStaticMesh(Mesh);
 		Cover->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		// Lo más caro de cada casilla: sin sombras propias y se desvanece cuando la cámara se aleja.
+		Cover->SetCastShadow(false);
+		Cover->bAffectDistanceFieldLighting = false;
+		Cover->SetCullDistances(static_cast<int32>(GroundCoverFadeStart), static_cast<int32>(GroundCoverFadeEnd));
 		Cover->SetupAttachment(Root);
 		Cover->RegisterComponent();
 		const float Fit = Shrink(Mesh, FitScale(Mesh, GroundCoverHeight), 0.2f / 1.3f);

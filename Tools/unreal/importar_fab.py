@@ -77,10 +77,38 @@ def import_zip(path):
     return bool(meshes)
 
 
+def prepare_materials():
+    """El juego no puede corregir materiales: sin estos usos, Nanite y el pasto instanciado se ven grises."""
+    registry = unreal.AssetRegistryHelpers.get_asset_registry()
+    instances = [d for d in registry.get_assets_by_path("/Game/Fab", recursive=True) if str(d.asset_class_path.asset_name) == "MaterialInstanceConstant"]
+    roots = {}
+    for data in instances:
+        material = unreal.load_asset(str(data.package_name))
+        while isinstance(material, unreal.MaterialInstance):
+            material = material.get_editor_property("parent")
+        if material:
+            roots[material.get_path_name()] = material
+    for material in roots.values():
+        changed = False
+        for flag in ("used_with_nanite", "used_with_instanced_static_meshes"):
+            if not material.get_editor_property(flag):
+                material.set_editor_property(flag, True)
+                changed = True
+        if changed:
+            unreal.MaterialEditingLibrary.recompile_material(material)
+            unreal.EditorAssetLibrary.save_loaded_asset(material, False)
+            unreal.log(f"Fab: usos de Nanite e instancias activados en {material.get_name()}")
+    # Guardadas de nuevo dejan de recompilarse en cada arranque.
+    for data in instances:
+        unreal.EditorAssetLibrary.save_asset(str(data.package_name), False)
+    unreal.log(f"Fab: {len(roots)} materiales base y {len(instances)} instancias listos para el juego")
+
+
 def main():
     zips = sorted(f for f in os.listdir(DOWNLOADS) if f.endswith(".zip")) if os.path.isdir(DOWNLOADS) else []
     done = sum(import_zip(os.path.join(DOWNLOADS, f)) for f in zips)
     unreal.log(f"Fab: {done} de {len(zips)} modelos importados")
+    prepare_materials()
 
 
 main()

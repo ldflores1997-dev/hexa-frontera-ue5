@@ -5,6 +5,7 @@
 #include "HFBoardActor.h"
 #include "HFCameraPawn.h"
 #include "HFGameMode.h"
+#include "HFHUD.h"
 #include "InputCoreTypes.h"
 
 AHFPlayerController::AHFPlayerController()
@@ -31,7 +32,8 @@ void AHFPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AHFPlayerController::OnRightReleased);
 	InputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AHFPlayerController::OnZoomIn);
 	InputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AHFPlayerController::OnZoomOut);
-	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AHFPlayerController::OnCancel);
+	// Esc también tiene que andar con el juego en pausa, para poder salir de ella.
+	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AHFPlayerController::OnCancel).bExecuteWhenPaused = true;
 	InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AHFPlayerController::OnRollOrEnd);
 }
 
@@ -280,7 +282,16 @@ void AHFPlayerController::OnZoomOut()
 
 void AHFPlayerController::OnCancel()
 {
-	Tool = EHFTool::None;
+	// Primero suelta la herramienta elegida; si no había ninguna, el menú decide (volver un paso o pausar).
+	if (Tool != EHFTool::None)
+	{
+		Tool = EHFTool::None;
+		return;
+	}
+	if (AHFHUD* HUD = GetHUD<AHFHUD>())
+	{
+		HUD->HandleEscape();
+	}
 }
 
 void AHFPlayerController::OnRollOrEnd()

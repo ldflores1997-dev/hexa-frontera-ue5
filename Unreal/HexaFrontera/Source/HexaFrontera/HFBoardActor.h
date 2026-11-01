@@ -150,6 +150,13 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
 	int32 GroundCoverPerTile = 120;
 
+	// Distancia a la cámara (cm) en la que el pasto empieza a desvanecerse y en la que ya no se dibuja.
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float GroundCoverFadeStart = 5000.0f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float GroundCoverFadeEnd = 7500.0f;
+
 	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
 	int32 BirdsPerTile = 2;
 
