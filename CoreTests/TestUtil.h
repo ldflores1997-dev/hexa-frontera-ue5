@@ -111,6 +111,14 @@ inline bool BotStep(hf::Game& game, int& actionsThisTurn, hf::ApplyResult* out =
     return true;
 }
 
+// Tira los dados y, si sale un comodín, elige el terreno como lo haría el bot.
+inline bool RollAndResolve(hf::Game& game) {
+    if (!game.Apply(hf::Action::Roll()).ok) return false;
+    if (game.GetPhase() == hf::Phase::ChooseWild)
+        return game.Apply(hf::Action::Wild(hf::Bot::BestWildTerrain(game, game.CurrentPlayer()))).ok;
+    return true;
+}
+
 // Termina la preparación con bots.
 inline bool FinishSetup(hf::Game& game) {
     int actions = 0;

@@ -1,6 +1,6 @@
 # Hexa Frontera
 
-Juego de mesa 3D original para **Unreal Engine 5**, programado en **C++**. Se juega en un tablero de hexágonos donde se producen recursos, se comercia y se construye. Cada mundo tiene un evento que cambia el tablero durante la partida.
+Juego de mesa 3D original para **Unreal Engine 5**, programado en **C++**. Se juega en un tablero de hexágonos donde se producen recursos, se comercia y se construye. La producción sale de **dados de terreno**: las caras muestran terrenos, el evento del mundo o un comodín, en lugar de números. Cada mundo tiene un evento que cambia el tablero durante la partida.
 
 | Mundo | Recursos | Evento |
 |---|---|---|
@@ -13,7 +13,7 @@ Las reglas completas están en [Docs/REGLAS.md](Docs/REGLAS.md).
 
 ## Estado
 
-- **Núcleo de reglas** (C++17 puro, en `Unreal/HexaFrontera/Source/HexaFrontera/Core/`): completo y con 20 tests automáticos. Incluye partidas completas entre bots en los 4 mundos, con 2 a 4 jugadores.
+- **Núcleo de reglas** (C++17 puro, en `Unreal/HexaFrontera/Source/HexaFrontera/Core/`): completo y con 28 tests automáticos. Incluye partidas completas entre bots en los 4 mundos, con 2 a 4 jugadores.
 - **Capa de Unreal**:
   - tablero 3D procedural con decoraciones por terreno;
   - piezas animadas;
@@ -22,7 +22,7 @@ Las reglas completas están en [Docs/REGLAS.md](Docs/REGLAS.md).
   - interfaz con menú, mercado, intercambio y contratos;
   - bots.
 
-  Está escrita para UE 5.4 o posterior, **pero todavía no se compiló en el motor**: la primera compilación puede dar errores menores. Ver [Docs/COMPILAR.md](Docs/COMPILAR.md).
+  El proyecto apunta a UE 5.8 y ya compiló en Windows. Los cambios de los dados de terreno todavía no se compilaron en el motor. Ver [Docs/COMPILAR.md](Docs/COMPILAR.md).
 - **Gráficos fotorrealistas**: el juego arranca con formas generadas por código. Para el aspecto realista se agregan materiales de Quixel Megascans y casillas modeladas en Blender, sin tocar código. Ver [Docs/GRAFICOS.md](Docs/GRAFICOS.md).
 
 ## Estructura

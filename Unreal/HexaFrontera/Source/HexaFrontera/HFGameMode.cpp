@@ -81,6 +81,7 @@ void AHFGameMode::PreviewScenario(const FString& ScenarioId, int32 PlayerCount)
 	Match = Preview;
 	PreviewSeed = Config.Seed;
 	PreviewScenarioId = ScenarioId;
+	ApplyDiceFaces();
 	ShowWorld();
 }
 
@@ -101,6 +102,7 @@ bool AHFGameMode::BeginHexMatch(const FHFMatchConfig& Config, FString& OutError)
 	AddMessage(TEXT("Preparación: cada jugador coloca 2 puestos con su ruta"));
 	NextBotTime = static_cast<float>(GetWorld()->GetTimeSeconds()) + BotDelaySeconds;
 	ResetTurnTimer();
+	ApplyDiceFaces();
 	ShowWorld();
 	return true;
 }
@@ -209,6 +211,61 @@ void AHFGameMode::OnDiceSettled(int32 First, int32 Second)
 	}
 }
 
+void AHFGameMode::ApplyDiceFaces()
+{
+	if (!Match.IsValid())
+	{
+		return;
+	}
+	const hf::Scenario& Scenario = Match->GetScenario();
+	TArray<FHFDieFaceLook> Looks[hf::kDiceCount];
+	for (int32 Die = 0; Die < hf::kDiceCount; ++Die)
+	{
+		for (int32 Face = 0; Face < hf::kDieFaces; ++Face)
+		{
+			const hf::DieFace& Def = Scenario.dice[Die][Face];
+			FHFDieFaceLook Look;
+			switch (Def.kind)
+			{
+			case hf::DieFaceKind::Terrain:
+				Look.Color = FHFMatch::ToLinear(Scenario.terrains[static_cast<size_t>(Def.terrain)].color);
+				break;
+			case hf::DieFaceKind::Event:
+				Look.Color = FLinearColor(0.45f, 0.03f, 0.02f);
+				Look.Symbol = FHFDieFaceLook::ESymbol::Event;
+				break;
+			case hf::DieFaceKind::Wild:
+				Look.Color = FLinearColor(0.95f, 0.68f, 0.12f);
+				Look.Symbol = FHFDieFaceLook::ESymbol::Wild;
+				break;
+			}
+			Looks[Die].Add(Look);
+		}
+	}
+	Dice->SetFaces(Looks[0], Looks[1]);
+}
+
+void AHFGameMode::FlashRolledTerrains()
+{
+	const hf::Game& Game = Match->GetGame();
+	const hf::Scenario& Scenario = Match->GetScenario();
+	const int32 TerrainA = Game.RolledTerrain(0);
+	const int32 TerrainB = Game.RolledTerrain(1);
+	TArray<int32> Tiles;
+	const auto& BoardTiles = Game.GetBoard().Tiles();
+	for (int32 T = 0; T < static_cast<int32>(BoardTiles.size()); ++T)
+	{
+		const hf::Tile& Tile = BoardTiles[static_cast<size_t>(T)];
+		if (Tile.terrain >= 0 && (Tile.terrain == TerrainA || Tile.terrain == TerrainB) && Tile.blockedRounds == 0)
+		{
+			Tiles.Add(T);
+		}
+	}
+	const int32 Lead = TerrainA >= 0 ? TerrainA : TerrainB;
+	const int32 Resource = Lead >= 0 ? Scenario.terrains[static_cast<size_t>(Lead)].resource : -1;
+	Board->FlashTiles(Tiles, Resource >= 0 ? FHFMatch::ToLinear(Scenario.resources[static_cast<size_t>(Resource)].color) : FLinearColor(1.0f, 0.85f, 0.45f));
+}
+
 float AHFGameMode::GetTurnTimeLeft() const
 {
 	if (!IsInMatch() || GetTurnSeconds() <= 0 || Match->GetGame().GetPhase() == hf::Phase::Finished)
@@ -237,6 +294,10 @@ void AHFGameMode::OnTurnTimeout()
 	case hf::Phase::AwaitRoll:
 		AddMessage(TEXT("¡Se acabó el tiempo! Los dados se tiran solos"));
 		StartDiceRoll();
+		break;
+	case hf::Phase::ChooseWild:
+		AddMessage(TEXT("¡Se acabó el tiempo! El comodín se elige solo"));
+		Match->Apply(hf::Action::Wild(hf::Bot::BestWildTerrain(Game, Game.CurrentPlayer())), Error);
 		break;
 	case hf::Phase::Main:
 		AddMessage(FString::Printf(TEXT("Se acabó el tiempo de %s"), *Match->PlayerName(Game.CurrentPlayer())));
@@ -325,21 +386,16 @@ void AHFGameMode::HandleEvents(const std::vector<hf::GameEvent>& Events)
 			bPiecesChanged = true;
 			break;
 		case hf::EventType::DiceRolled:
-		{
 			bStatusChanged = true;
-			TArray<int32> Tiles;
-			const auto& BoardTiles = Game.GetBoard().Tiles();
-			for (int32 T = 0; T < static_cast<int32>(BoardTiles.size()); ++T)
+			// Con comodín, las casillas se iluminan recién cuando se elige el terreno.
+			if (Game.GetPhase() != hf::Phase::ChooseWild)
 			{
-				if (BoardTiles[static_cast<size_t>(T)].number == Event.amount && BoardTiles[static_cast<size_t>(T)].blockedRounds == 0)
-				{
-					Tiles.Add(T);
-				}
+				FlashRolledTerrains();
 			}
-			Board->FlashTiles(Tiles, FLinearColor(1.0f, 0.85f, 0.45f));
-			Board->HighlightNumber(Event.amount);
 			break;
-		}
+		case hf::EventType::WildChosen:
+			FlashRolledTerrains();
+			break;
 		case hf::EventType::Produced:
 			if (Hud)
 			{

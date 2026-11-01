@@ -13,7 +13,6 @@ class UPointLightComponent;
 class UProceduralMeshComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
-class UTextRenderComponent;
 
 // Reemplazo visual de un terreno (por ejemplo, un material de Megascans o una malla de Blender).
 USTRUCT(BlueprintType)
@@ -72,8 +71,6 @@ public:
 	void FlashTiles(const TArray<int32>& Tiles, const FLinearColor& Color);
 	void SetHighlights(const TArray<int32>& Vertices, const TArray<int32>& Edges, const TArray<int32>& Tiles, const FLinearColor& Color);
 	void ClearHighlights();
-	// Hace saltar las fichas con ese número (el que salió en los dados).
-	void HighlightNumber(int32 Number);
 	// Sol y noche del ambiente: los paneles siguen al sol y de noche se prenden luces en las construcciones.
 	void SetDayState(const FVector& InSunDirection, float InNight);
 
@@ -305,8 +302,6 @@ private:
 	UPROPERTY()
 	TMap<FString, TObjectPtr<UMaterialInstanceDynamic>> MaterialCache;
 	UPROPERTY()
-	TArray<TObjectPtr<UTextRenderComponent>> NumberTexts;
-	UPROPERTY()
 	TArray<TObjectPtr<UPointLightComponent>> BuildingLights;
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> PuffPool;
@@ -322,10 +317,7 @@ private:
 	TArray<FWater> Waters;
 	TArray<FGlow> Glows;
 	TArray<FCreature> Creatures;
-	TArray<int32> NumberTiles; // casilla de cada texto de NumberTexts
 	TArray<float> BuildingLightPower; // intensidad de noche de cada luz de BuildingLights
-	int32 HighlightedNumber = 0;
-	float HighlightStart = -100.0f;
 	FVector SunDirection = FVector::UpVector;
 	float Night = 0.0f;
 
@@ -333,7 +325,6 @@ private:
 	TArray<FVector2D> TileCenters;   // cm, plano XY
 	TArray<float> TileHeights;       // cm
 	TArray<int32> TileTerrains;
-	TArray<int32> TileNumbers;
 	TArray<FVector2D> VertexPositions;
 	TArray<float> VertexHeights;
 	TArray<FIntPoint> EdgeVertices;
@@ -346,14 +337,13 @@ private:
 	// Escala que lleva la malla al alto pedido, y posición que apoya su base en Spot.
 	float FitScale(const UStaticMesh* Mesh, float Height) const;
 	FVector GroundedLocation(const UStaticMesh* Mesh, const FVector& Spot, const FRotator& Rotation, float Scale) const;
-	void AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome, bool bHasNumber);
+	void AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome);
 	void AddCreature(ECreature Kind, const FVector& Center, float Radius, float Speed, float Phase, const FLinearColor& Color, UStaticMesh* Mesh = nullptr);
 	void TickCreatures(float Now, float DeltaSeconds);
 	UStaticMeshComponent* AddShape(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color,
 		TArray<TObjectPtr<UStaticMeshComponent>>& OutComponents, const FRotator& Rotation = FRotator::ZeroRotator);
 	void BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, float Height, const FLinearColor& Color, UMaterialInterface* Override, bool bWater);
-	void AddDecoration(int32 Tile, const FString& Decoration, const FString& TerrainId, const FLinearColor& TerrainColor, bool bHasNumber);
-	void AddNumberToken(int32 Tile, int32 Number);
+	void AddDecoration(int32 Tile, const FString& Decoration, const FString& TerrainId, const FLinearColor& TerrainColor);
 	void ClearComponents(TArray<TObjectPtr<UStaticMeshComponent>>& Components);
 	void AddMotion(UStaticMeshComponent* Component, EMotion Kind, const FVector& Pivot, float Amount, float Phase);
 	void AddEmitter(const FVector& Origin, EPuff Kind, float Interval, float Spread);

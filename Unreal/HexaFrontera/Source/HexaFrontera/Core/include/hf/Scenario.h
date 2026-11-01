@@ -50,6 +50,18 @@ struct WorldEventDef {
     int terrain = -1;     // terreno resultante (lava)
 };
 
+// Cara de un dado de terreno: un terreno que produce, el evento del mundo o un comodín
+// (el jugador que tiró elige qué terreno produce).
+enum class DieFaceKind { Terrain, Event, Wild };
+
+struct DieFace {
+    DieFaceKind kind = DieFaceKind::Terrain;
+    int terrain = -1; // solo para DieFaceKind::Terrain
+};
+
+const int kDieFaces = 6;
+const int kDiceCount = 2;
+
 enum class ContractKind { Routes, Centers, TerrainReach, Diversity, Coins };
 
 struct ContractDef {
@@ -86,6 +98,8 @@ struct Scenario {
     std::vector<TerrainDef> terrains;
     PieceDef pieces[kPieceKindCount];
     WorldEventDef worldEvent;
+    // Dado 0: «dado de terreno» (incluye la cara de evento). Dado 1: «dado de región» (incluye comodines).
+    DieFace dice[kDiceCount][kDieFaces];
     std::vector<ContractDef> contracts;
     EnvironmentDef environment;
 
@@ -94,6 +108,10 @@ struct Scenario {
     const PieceDef& Piece(PieceKind kind) const { return pieces[static_cast<int>(kind)]; }
     int FindResource(const std::string& resourceId) const;
     int FindTerrain(const std::string& terrainId) const;
+    // Terrenos que producen recursos y aparecen en el tablero, en el orden del escenario.
+    std::vector<int> ProducingTerrains() const;
+    // Cuántas caras (de las 12) muestran este terreno.
+    int FacesShowingTerrain(int terrain) const;
 };
 
 // Carga y valida el escenario. Devuelve false con un mensaje en `error`.

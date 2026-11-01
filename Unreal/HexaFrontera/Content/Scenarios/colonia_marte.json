@@ -3,7 +3,7 @@
   "name": "Colonia en Marte",
   "description": "Cráteres helados, paneles solares y tormentas de polvo que dejan zonas a oscuras.",
   "radius": 2,
-  "prestige_to_win": 15,
+  "prestige_to_win": 17,
   "resources": [
     {"id": "hielo", "name": "Hielo", "color": "#d8f0ff"},
     {"id": "mineral", "name": "Mineral", "color": "#8a5a44"},

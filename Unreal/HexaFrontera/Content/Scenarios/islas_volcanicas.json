@@ -3,7 +3,7 @@
   "name": "Islas volcánicas",
   "description": "Un archipiélago vivo: los volcanes cambian el mapa en cada erupción.",
   "radius": 2,
-  "prestige_to_win": 15,
+  "prestige_to_win": 17,
   "resources": [
     {"id": "obsidiana", "name": "Obsidiana", "color": "#2e2b33"},
     {"id": "coral", "name": "Coral", "color": "#f07c6c"},

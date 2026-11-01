@@ -3,7 +3,7 @@
   "name": "Ciudad flotante",
   "description": "Plataformas de latón entre las nubes. A veces una se desacopla y cambia de lugar.",
   "radius": 2,
-  "prestige_to_win": 15,
+  "prestige_to_win": 17,
   "resources": [
     {"id": "vapor", "name": "Vapor", "color": "#e6eef2"},
     {"id": "laton", "name": "Latón", "color": "#c9a24a"},

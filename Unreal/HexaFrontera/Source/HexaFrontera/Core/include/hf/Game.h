@@ -16,6 +16,7 @@ namespace hf {
 enum class Phase {
     Setup,      // cada jugador coloca 2 puestos y 2 rutas gratis (orden serpiente)
     AwaitRoll,  // inicio de turno: se puede reforzar una casilla y luego se tiran los dados
+    ChooseWild, // salió un comodín: el jugador elige qué terreno produce
     Main,       // construir, comerciar y terminar el turno
     Finished,
 };
@@ -26,7 +27,8 @@ enum class ActionType {
     UpgradeCenter, // target = vértice
     PublicWork,    // obra pública: prestigio sin ocupar lugar en el tablero
     Boost,         // target = casilla
-    RollDice,      // dice = valores (1-6) si los dados se tiraron afuera, -1 para que los tire el núcleo
+    RollDice,      // dice = caras (1-6) si los dados se tiraron afuera, -1 para que los tire el núcleo
+    ChooseWild,    // target = terreno que produce por el comodín
     MarketBuy,     // resource
     MarketSell,    // resource
     PlayerTrade,   // otherPlayer, give, get
@@ -55,6 +57,7 @@ struct Action {
         a.dice[1] = second;
         return a;
     }
+    static Action Wild(int terrain) { Action a; a.type = ActionType::ChooseWild; a.target = terrain; return a; }
     static Action Buy(int resource) { Action a; a.type = ActionType::MarketBuy; a.resource = resource; return a; }
     static Action Sell(int resource) { Action a; a.type = ActionType::MarketSell; a.resource = resource; return a; }
     static Action End() { return Action(); }
@@ -70,7 +73,8 @@ struct Action {
 
 enum class EventType {
     TurnStarted,
-    DiceRolled,      // player, amount = suma (ver LastDice)
+    DiceRolled,      // player, index = cara del dado de terreno, amount = cara del dado de región (1-6)
+    WildChosen,      // player, index = terreno elegido
     Produced,        // player, tile, resource, amount
     Boosted,         // player, tile
     OutpostBuilt,    // player, index = vértice
@@ -85,6 +89,7 @@ enum class EventType {
     Frost,           // tile
     PlatformSwap,    // tile, tile2
     ContractClaimed, // player, index = contrato
+    FinalRound,      // player: llegó a la meta; se termina la ronda y gana el de más prestigio
     Won,             // player
 };
 
@@ -97,11 +102,6 @@ struct GameEvent {
     int amount = 0;
     int index = -1;
 };
-
-// Suma de dados que dispara el evento del mundo en lugar de producir.
-const int kWorldEventRoll = 7;
-// Recursos que da cada nivel de construcción cuando sale el número de la casilla.
-const int kDiceYield = 2;
 
 struct Player {
     std::string name;
@@ -158,11 +158,19 @@ public:
     int CurrentPlayer() const { return currentPlayer; }
     int Round() const { return round; }
     int Winner() const { return winner; }
+    // Alguien llegó a la meta: la partida termina cuando todos jugaron la misma cantidad de turnos.
+    bool IsFinalRound() const { return finalRound; }
     int BoostedTile() const { return boostedTile; }
-    // Últimos dados tirados (0 antes de la primera tirada).
+    // Últimos dados tirados: cara (1-6, 0 antes de la primera tirada) y qué muestra.
     int LastDie(int index) const { return lastDice[index]; }
-    int LastRoll() const { return lastDice[0] + lastDice[1]; }
+    DieFace LastFace(int index) const;
+    // Terrenos que produjeron en la última tirada (-1 si ninguno), ya resuelto el comodín.
+    int RolledTerrain(int index) const { return rolledTerrains[index]; }
     bool HasRolled() const { return hasRolled; }
+    // Comodines pendientes de elegir en la fase ChooseWild.
+    int PendingWilds() const { return pendingWilds; }
+    // Cuántos recursos le daría al jugador que produzca este terreno (para elegir el comodín).
+    int TerrainYieldFor(int player, int terrain) const;
 
     // En la preparación: true si el jugador actual debe poner la ruta de su último puesto.
     bool SetupNeedsRoute() const { return setupNeedsRoute; }
@@ -178,11 +186,14 @@ private:
     std::vector<int> contractOwners;   // por contrato, -1 libre
     std::vector<int> marketStock;
     int lastDice[2] = {0, 0};
+    int rolledTerrains[2] = {-1, -1};
+    int pendingWilds = 0;
     bool hasRolled = false;
     Phase phase = Phase::Setup;
     int currentPlayer = 0;
     int round = 0;
     int winner = -1;
+    bool finalRound = false;
     int boostedTile = -1;
     int setupStep = 0;
     bool setupNeedsRoute = false;
@@ -192,7 +203,8 @@ private:
     bool RouteTouchesVertexFor(int player, int vertex, int exceptEdge) const;
     void Pay(int player, const std::vector<int>& cost);
     void StartTurn(std::vector<GameEvent>& events);
-    void Produce(int roll, std::vector<GameEvent>& events);
+    void Produce(int terrainA, int terrainB, std::vector<GameEvent>& events);
+    void FinishRoll(std::vector<GameEvent>& events);
     void ApplyWorldEvent(std::vector<GameEvent>& events);
     void TickStatuses();
     void CheckContractsAndVictory(int player, std::vector<GameEvent>& events);

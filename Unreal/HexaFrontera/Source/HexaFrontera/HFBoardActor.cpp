@@ -1,14 +1,11 @@
 ﻿#include "HFBoardActor.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "Camera/PlayerCameraManager.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
 #include "HFMatch.h"
-#include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -22,7 +19,6 @@ namespace
 const float PieceDropHeight = 600.0f;
 const float PieceDropSeconds = 0.45f;
 const float FlashSeconds = 1.6f;
-const float NumberJumpSeconds = 2.5f;
 const int32 MaxPuffs = 300;
 const int32 WaterSubdivisions = 7;
 const float WaveAmplitude = 6.0f;
@@ -261,15 +257,6 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		}
 	}
 	DecorationLights.Reset();
-	for (UTextRenderComponent* Text : NumberTexts)
-	{
-		if (Text)
-		{
-			Text->DestroyComponent();
-		}
-	}
-	NumberTexts.Reset();
-	NumberTiles.Reset();
 	ClearComponents(TileComponents);
 	ClearComponents(PieceComponents);
 	ClearComponents(StatusComponents);
@@ -303,7 +290,6 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 	TileCenters.SetNum(static_cast<int32>(Tiles.size()));
 	TileHeights.SetNum(static_cast<int32>(Tiles.size()));
 	TileTerrains.SetNum(static_cast<int32>(Tiles.size()));
-	TileNumbers.SetNum(static_cast<int32>(Tiles.size()));
 	VertexPositions.SetNum(static_cast<int32>(Vertices.size()));
 	VertexHeights.SetNum(static_cast<int32>(Vertices.size()));
 	EdgeVertices.SetNum(static_cast<int32>(Edges.size()));
@@ -328,7 +314,6 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		const hf::Point2 Center = hf::HexToPoint(Tile.coord);
 		TileCenters[T] = FVector2D(Center.x * TileRadius, Center.y * TileRadius);
 		TileTerrains[T] = Tile.terrain;
-		TileNumbers[T] = Tile.number;
 		const hf::TerrainDef& Terrain = Scenario.terrains[static_cast<size_t>(Tile.terrain)];
 		TileHeights[T] = TileBaseHeight + Terrain.height * TerrainHeightScale;
 		BoardTopZ = FMath::Max(BoardTopZ, TileHeights[T]);
@@ -367,7 +352,7 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		const int32 FirstShape = TileComponents.Num();
 		const int32 FirstMotion = Motions.Num();
 		const int32 FirstCreature = Creatures.Num();
-		AddDecoration(T, FHFMatch::ToFString(Terrain.decoration), TerrainId, Color, Tile.number > 0);
+		AddDecoration(T, FHFMatch::ToFString(Terrain.decoration), TerrainId, Color);
 		if (Biome.ReplacesShapes())
 		{
 			// Con modelos propios, las formas básicas de esta casilla sobran; el humo, las luces y el agua se quedan.
@@ -381,11 +366,7 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 			TileComponents.SetNum(FirstShape);
 			Motions.SetNum(FirstMotion);
 			Creatures.SetNum(FirstCreature);
-			AddBiomeAssets(T, Biome, Tile.number > 0);
-		}
-		if (Tile.number > 0)
-		{
-			AddNumberToken(T, Tile.number);
+			AddBiomeAssets(T, Biome);
 		}
 	}
 
@@ -566,38 +547,15 @@ void AHFBoardActor::BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, 
 	TileMeshes.Add(Mesh);
 }
 
-void AHFBoardActor::AddNumberToken(int32 Tile, int32 Number)
-{
-	// Ficha clara sobre la casilla con el número flotando encima; 6 y 8 (los que más salen) en rojo.
-	const FVector Top = TileWorld(Tile);
-	AddShape(CylinderMesh, Top + FVector(0, 0, 4), FVector(0.95f, 0.95f, 0.08f), FLinearColor(0.93f, 0.86f, 0.68f), TileComponents);
-	const bool bHot = Number == 6 || Number == 8;
-	UTextRenderComponent* Text = NewObject<UTextRenderComponent>(this);
-	Text->SetupAttachment(Root);
-	Text->SetRelativeLocation(Top + FVector(0, 0, 70));
-	Text->SetText(FText::AsNumber(Number));
-	Text->SetHorizontalAlignment(EHTA_Center);
-	Text->SetVerticalAlignment(EVRTA_TextCenter);
-	// Tinta oscura: se lee sobre la ficha clara y sobre cualquier terreno.
-	Text->SetWorldSize(bHot ? 140.0f : 120.0f);
-	Text->SetTextRenderColor(bHot ? FColor(190, 20, 10) : FColor(28, 22, 16));
-	Text->SetCastShadow(false);
-	Text->RegisterComponent();
-	NumberTexts.Add(Text);
-	NumberTiles.Add(Tile);
-}
-
-void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const FString& TerrainId, const FLinearColor& TerrainColor, bool bHasNumber)
+void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const FString& TerrainId, const FLinearColor& TerrainColor)
 {
 	FRandomStream Random(static_cast<int32>(Tile * 7919 + static_cast<int32>(GetTypeHash(ScenarioId) & 0x7FFFFF)));
 	const FVector Base(TileCenters[Tile], TileHeights[Tile]);
 	const float Spread = TileRadius * 0.55f;
-	// Con ficha de número, las decoraciones dejan libre el centro de la casilla.
-	const float MinFraction = bHasNumber ? 0.4f : 0.0f;
 	auto RandomSpot = [&]()
 	{
 		const float Angle = Random.FRandRange(0.0f, 2.0f * UE_PI);
-		const float Distance = FMath::Sqrt(FMath::Lerp(MinFraction * MinFraction, 1.0f, Random.FRand())) * Spread;
+		const float Distance = FMath::Sqrt(Random.FRand()) * Spread;
 		return Base + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0f);
 	};
 	auto Spin = [&]() { return FRotator(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f); };
@@ -812,17 +770,16 @@ void AHFBoardActor::AddEmitter(const FVector& Origin, EPuff Kind, float Interval
 	Emitters.Add(Emitter);
 }
 
-void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome, bool bHasNumber)
+void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome)
 {
 	FRandomStream Random(static_cast<int32>(Tile * 104729 + static_cast<int32>(GetTypeHash(ScenarioId) & 0x7FFFFF)));
 	const FVector Base(TileCenters[Tile], TileHeights[Tile]);
 	const float Spread = TileRadius * 0.6f;
-	const float MinFraction = bHasNumber ? 0.35f : 0.0f; // la ficha de número va en el centro
 	auto Pick = [&](const TArray<UStaticMesh*>& From) { return From[Random.RandRange(0, From.Num() - 1)]; };
 	auto RandomPoint = [&](float Reach)
 	{
 		const float Angle = Random.FRandRange(0.0f, 2.0f * UE_PI);
-		const float Distance = FMath::Sqrt(FMath::Lerp(MinFraction * MinFraction, 1.0f, Random.FRand())) * Spread * Reach;
+		const float Distance = FMath::Sqrt(Random.FRand()) * Spread * Reach;
 		return Base + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0f);
 	};
 	// Lugares ocupados (centro y radio), para que rocas, plantas y relieve no queden encimados.
@@ -1300,34 +1257,6 @@ void AHFBoardActor::TickLife(float Now, float DeltaSeconds)
 		Mesh->UpdateMeshSection_LinearColor(1, Positions, Normals, Water.UVs, Colors, TArray<FProcMeshTangent>());
 	}
 
-	// Números: miran a la cámara y el que salió en los dados salta.
-	FVector CameraLocation = FVector::ZeroVector;
-	if (APlayerCameraManager* CameraManager = UGameplayStatics::GetPlayerCameraManager(this, 0))
-	{
-		CameraLocation = CameraManager->GetCameraLocation();
-	}
-	const float JumpAlpha = (Now - HighlightStart) / NumberJumpSeconds;
-	for (int32 I = 0; I < NumberTexts.Num(); ++I)
-	{
-		UTextRenderComponent* Text = NumberTexts[I];
-		if (!Text || !NumberTiles.IsValidIndex(I))
-		{
-			continue;
-		}
-		const int32 Tile = NumberTiles[I];
-		FVector Location = TileWorld(Tile) + FVector(0, 0, 70);
-		float Scale = 1.0f;
-		if (JumpAlpha < 1.0f && TileNumbers.IsValidIndex(Tile) && TileNumbers[Tile] == HighlightedNumber)
-		{
-			const float Bounce = FMath::Abs(FMath::Sin(JumpAlpha * UE_PI * 3.0f)) * (1.0f - JumpAlpha);
-			Location.Z += 90.0f * Bounce;
-			Scale = 1.0f + 0.6f * Bounce;
-		}
-		Text->SetRelativeLocation(Location);
-		Text->SetRelativeScale3D(FVector(Scale));
-		Text->SetWorldRotation((CameraLocation - Text->GetComponentLocation()).Rotation());
-	}
-
 	// Luces de las construcciones: se prenden al anochecer.
 	for (int32 I = 0; I < BuildingLights.Num(); ++I)
 	{
@@ -1336,12 +1265,6 @@ void AHFBoardActor::TickLife(float Now, float DeltaSeconds)
 			Light->SetIntensity(Night * BuildingLightPower[I]);
 		}
 	}
-}
-
-void AHFBoardActor::HighlightNumber(int32 Number)
-{
-	HighlightedNumber = Number;
-	HighlightStart = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.0f;
 }
 
 void AHFBoardActor::SetDayState(const FVector& InSunDirection, float InNight)
@@ -1453,7 +1376,7 @@ void AHFBoardActor::RefreshStatuses(const FHFMatch& Match)
 	for (int32 T = 0; T < static_cast<int32>(Tiles.size()); ++T)
 	{
 		const hf::Tile& Tile = Tiles[static_cast<size_t>(T)];
-		if ((TileTerrains.IsValidIndex(T) && TileTerrains[T] != Tile.terrain) || (TileNumbers.IsValidIndex(T) && TileNumbers[T] != Tile.number))
+		if (TileTerrains.IsValidIndex(T) && TileTerrains[T] != Tile.terrain)
 		{
 			bTerrainChanged = true;
 		}

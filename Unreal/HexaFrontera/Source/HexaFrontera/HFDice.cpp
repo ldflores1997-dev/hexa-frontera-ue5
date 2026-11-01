@@ -1,4 +1,4 @@
-#include "HFDice.h"
+﻿#include "HFDice.h"
 
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -23,20 +23,6 @@ const FFace Faces[6] = {
 	{FVector(0, -1, 0), 4},
 };
 
-// Posición de los puntos en una cara, en unidades de la grilla de 3 x 3 (-1, 0, 1).
-TArray<FVector2D> PipLayout(int32 Value)
-{
-	switch (Value)
-	{
-	case 1: return {FVector2D(0, 0)};
-	case 2: return {FVector2D(-1, -1), FVector2D(1, 1)};
-	case 3: return {FVector2D(-1, -1), FVector2D(0, 0), FVector2D(1, 1)};
-	case 4: return {FVector2D(-1, -1), FVector2D(-1, 1), FVector2D(1, -1), FVector2D(1, 1)};
-	case 5: return {FVector2D(-1, -1), FVector2D(-1, 1), FVector2D(0, 0), FVector2D(1, -1), FVector2D(1, 1)};
-	default: return {FVector2D(-1, -1), FVector2D(-1, 0), FVector2D(-1, 1), FVector2D(1, -1), FVector2D(1, 0), FVector2D(1, 1)};
-	}
-}
-
 const float TrayFloorZ = 10.0f;
 const float RimHeight = 70.0f;
 const float LidHeight = 320.0f;
@@ -51,8 +37,10 @@ AHFDice::AHFDice()
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cone(TEXT("/Engine/BasicShapes/Cone.Cone"));
 	CubeMesh = Cube.Object;
 	SphereMesh = Sphere.Object;
+	ConeMesh = Cone.Object;
 }
 
 UMaterialInstanceDynamic* AHFDice::MakeMaterial(const FLinearColor& Color)
@@ -116,29 +104,47 @@ void AHFDice::BuildTray()
 	Lid->SetVisibility(false);
 }
 
+void AHFDice::SetFaces(const TArray<FHFDieFaceLook>& First, const TArray<FHFDieFaceLook>& Second)
+{
+	Looks[0] = First;
+	Looks[1] = Second;
+	bLooksChanged = true;
+}
+
 UStaticMeshComponent* AHFDice::BuildDie(int32 Index)
 {
-	UMaterialInstanceDynamic* Ivory = MakeMaterial(Index == 0 ? FLinearColor(0.92f, 0.88f, 0.78f) : FLinearColor(0.75f, 0.12f, 0.08f));
-	UMaterialInstanceDynamic* PipColor = MakeMaterial(Index == 0 ? FLinearColor(0.02f, 0.02f, 0.03f) : FLinearColor(0.95f, 0.93f, 0.88f));
-
-	UStaticMeshComponent* Die = AddPart(CubeMesh, Root, FVector::ZeroVector, FVector(DieSize / 100.0f), Ivory);
+	// El dado de terreno es de piedra clara y el de región de bronce, para distinguirlos.
+	UMaterialInstanceDynamic* Body = MakeMaterial(Index == 0 ? FLinearColor(0.82f, 0.80f, 0.74f) : FLinearColor(0.55f, 0.36f, 0.14f));
+	UStaticMeshComponent* Die = AddPart(CubeMesh, Root, FVector::ZeroVector, FVector(DieSize / 100.0f), Body);
 	Die->SetCollisionProfileName(TEXT("PhysicsActor"));
 	Die->SetLinearDamping(0.25f);
 	Die->SetAngularDamping(0.35f);
 	Die->SetCastShadow(true);
 
-	// Puntos: esferas oscuras apenas hundidas en cada cara (en el espacio local del cubo, que mide 100).
+	// Cada cara lleva un parche de color apenas sobresaliente (en el espacio local del cubo, que mide 100)
+	// y, si es evento o comodín, un símbolo encima.
 	for (const FFace& Face : Faces)
 	{
-		const FVector U = FMath::Abs(Face.Normal.Z) > 0.5f ? FVector(1, 0, 0) : FVector(0, 0, 1);
-		const FVector V = FVector::CrossProduct(Face.Normal, U);
-		for (const FVector2D& Pip : PipLayout(Face.Value))
+		FHFDieFaceLook Look;
+		if (Looks[Index].IsValidIndex(Face.Value - 1))
 		{
-			UStaticMeshComponent* Dot = AddPart(SphereMesh, Die, Face.Normal * 47.0f + U * Pip.X * 27.0f + V * Pip.Y * 27.0f,
-				FVector(0.16f, 0.16f, 0.16f), PipColor);
-			Dot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-			Dot->SetCastShadow(false);
+			Look = Looks[Index][Face.Value - 1];
 		}
+		const FVector Axis = Face.Normal.GetAbs();
+		const FVector PatchScale = FVector(0.78f) * (FVector::OneVector - Axis) + Axis * 0.03f;
+		UStaticMeshComponent* Patch = AddPart(CubeMesh, Die, Face.Normal * 50.0f, PatchScale, MakeMaterial(Look.Color));
+		Patch->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Patch->SetCastShadow(false);
+		if (Look.Symbol == FHFDieFaceLook::ESymbol::Terrain)
+		{
+			continue;
+		}
+		const bool bEvent = Look.Symbol == FHFDieFaceLook::ESymbol::Event;
+		UStaticMeshComponent* Symbol = AddPart(bEvent ? ConeMesh.Get() : SphereMesh.Get(), Die, Face.Normal * 58.0f, FVector(bEvent ? 0.32f : 0.3f),
+			MakeMaterial(bEvent ? FLinearColor(0.02f, 0.02f, 0.02f) : FLinearColor(0.98f, 0.97f, 0.92f)));
+		Symbol->SetRelativeRotation(FRotationMatrix::MakeFromZ(Face.Normal).Rotator()); // el cono apunta hacia afuera
+		Symbol->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Symbol->SetCastShadow(false);
 	}
 	return Die;
 }
@@ -148,8 +154,27 @@ void AHFDice::Throw(const FVector& Location, float FacingYaw)
 	if (TrayParts.Num() == 0)
 	{
 		BuildTray();
+	}
+	if (!Dice[0] || bLooksChanged)
+	{
+		// Mundo nuevo (o primera tirada): se arman los dados con las caras del escenario.
+		for (TObjectPtr<UStaticMeshComponent>& Die : Dice)
+		{
+			if (Die)
+			{
+				TArray<USceneComponent*> Children;
+				Die->GetChildrenComponents(true, Children);
+				for (USceneComponent* Child : Children)
+				{
+					Child->DestroyComponent();
+				}
+				Die->DestroyComponent();
+				Die = nullptr;
+			}
+		}
 		Dice[0] = BuildDie(0);
 		Dice[1] = BuildDie(1);
+		bLooksChanged = false;
 	}
 	SetActorLocationAndRotation(Location, FRotator(0.0f, FacingYaw, 0.0f));
 
