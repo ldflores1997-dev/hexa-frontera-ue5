@@ -13,6 +13,7 @@ public class HexaFrontera : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
+			"AssetRegistry",
 			"Core",
 			"CoreUObject",
 			"Engine",

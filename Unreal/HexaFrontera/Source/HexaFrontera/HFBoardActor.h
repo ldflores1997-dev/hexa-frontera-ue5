@@ -6,6 +6,7 @@
 #include "HFBoardActor.generated.h"
 
 class FHFMatch;
+class UHierarchicalInstancedStaticMeshComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class UPointLightComponent;
@@ -33,6 +34,25 @@ struct FHFTerrainVisual
 	// Malla que reemplaza la casilla procedural: hexágono de radio 100 (1 m), base en Z = 0, alto 100.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hexa Frontera")
 	TSoftObjectPtr<UStaticMesh> Mesh;
+
+	// Lo mismo que las subcarpetas de BiomeFolder (ver Docs/GRAFICOS.md), para usar recursos sin moverlos.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hexa Frontera")
+	TArray<TSoftObjectPtr<UStaticMesh>> Plants;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hexa Frontera")
+	TArray<TSoftObjectPtr<UStaticMesh>> Rocks;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hexa Frontera")
+	TArray<TSoftObjectPtr<UStaticMesh>> GroundCover;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hexa Frontera")
+	TSoftObjectPtr<UStaticMesh> Landmark;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hexa Frontera")
+	TArray<TSoftObjectPtr<UStaticMesh>> Birds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hexa Frontera")
+	TArray<TSoftObjectPtr<UStaticMesh>> Fauna;
 };
 
 UCLASS(Config = Game)
@@ -96,6 +116,48 @@ public:
 
 	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera")
 	TArray<FHFTerrainVisual> TerrainVisuals;
+
+	// Carpeta donde se buscan los recursos de cada bioma: <BiomeFolder>/<mundo>/<terreno>/ (ver Docs/GRAFICOS.md).
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	FString BiomeFolder = TEXT("/Game/Biomas");
+
+	// Alto en cm al que se escala cada recurso, sin importar su tamaño original (con ±25% de variación).
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float PlantHeight = 120.0f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float RockHeight = 40.0f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float GroundCoverHeight = 18.0f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float LandmarkHeight = 260.0f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float BirdSize = 45.0f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float FaunaHeight = 32.0f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	int32 PlantsPerTile = 8;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	int32 RocksPerTile = 6;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	int32 GroundCoverPerTile = 120;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	int32 BirdsPerTile = 2;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	int32 FaunaPerTile = 2;
+
+	// Giro que se suma a los animales y aves si avanzan de costado o de espaldas (depende de cómo se exportó el modelo).
+	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera|Biomas")
+	float FaunaYawOffset = 0.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Hexa Frontera")
 	TArray<FLinearColor> PlayerColors;
@@ -169,6 +231,50 @@ private:
 		float Phase = 0.0f;
 	};
 
+	// Recursos de un bioma: lo que hay en <BiomeFolder>/<mundo>/<terreno>/ más lo que agrega TerrainVisuals.
+	struct FBiomeAssets
+	{
+		UMaterialInterface* Material = nullptr;
+		UStaticMesh* Tile = nullptr;
+		UStaticMesh* Landmark = nullptr;
+		TArray<UStaticMesh*> Plants;
+		TArray<UStaticMesh*> Rocks;
+		TArray<UStaticMesh*> GroundCover;
+		TArray<UStaticMesh*> Birds;
+		TArray<UStaticMesh*> Fauna;
+
+		// Con cualquier modelo propio, la casilla deja de usar las formas básicas.
+		bool ReplacesShapes() const
+		{
+			return Landmark || Plants.Num() || Rocks.Num() || GroundCover.Num() || Birds.Num() || Fauna.Num();
+		}
+	};
+
+	// Animales: aves que vuelan en círculos, cóndores que planean, drones, dirigibles y animales que pastan.
+	enum class ECreature : uint8 { Bird, Glider, Drone, Airship, Walker };
+	enum class EPart : uint8 { Fixed, WingLeft, WingRight, Rotor };
+	struct FCreaturePart
+	{
+		TWeakObjectPtr<UStaticMeshComponent> Component;
+		EPart Kind = EPart::Fixed;
+		FVector Offset = FVector::ZeroVector; // respecto del cuerpo, mirando hacia +X
+		FQuat Rotation = FQuat::Identity;
+	};
+	struct FCreature
+	{
+		ECreature Kind = ECreature::Bird;
+		TArray<FCreaturePart> Parts;
+		FVector Center = FVector::ZeroVector; // centro de la ronda o de la zona donde camina
+		float Radius = 100.0f;
+		float Speed = 0.5f;   // radianes por segundo en vuelo; cm por segundo al caminar
+		float Phase = 0.0f;
+		// Solo para los que caminan.
+		FVector Location = FVector::ZeroVector;
+		FVector Target = FVector::ZeroVector;
+		float Yaw = 0.0f;
+		float WaitUntil = 0.0f;
+	};
+
 	UPROPERTY()
 	TObjectPtr<USceneComponent> Root;
 
@@ -204,6 +310,8 @@ private:
 	TArray<TObjectPtr<UPointLightComponent>> BuildingLights;
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> PuffPool;
+	UPROPERTY()
+	TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> GroundCoverComponents;
 
 	TArray<FAnimatedPiece> AnimatedPieces;
 	TArray<FFlash> Flashes;
@@ -213,6 +321,7 @@ private:
 	TArray<FPuff> Puffs;
 	TArray<FWater> Waters;
 	TArray<FGlow> Glows;
+	TArray<FCreature> Creatures;
 	TArray<int32> NumberTiles; // casilla de cada texto de NumberTexts
 	TArray<float> BuildingLightPower; // intensidad de noche de cada luz de BuildingLights
 	int32 HighlightedNumber = 0;
@@ -232,8 +341,14 @@ private:
 	float BoardExtent = 0.0f;
 
 	UMaterialInstanceDynamic* MaterialFor(const FLinearColor& Color);
-	UMaterialInterface* TerrainMaterialOverride(const FString& TerrainId) const;
-	UStaticMesh* TerrainMeshOverride(const FString& TerrainId) const;
+	FBiomeAssets LoadBiome(const FString& TerrainId) const;
+	UStaticMeshComponent* AddAsset(UStaticMesh* Mesh, const FVector& Location, const FRotator& Rotation, float Scale);
+	// Escala que lleva la malla al alto pedido, y posición que apoya su base en Spot.
+	float FitScale(const UStaticMesh* Mesh, float Height) const;
+	FVector GroundedLocation(const UStaticMesh* Mesh, const FVector& Spot, const FRotator& Rotation, float Scale) const;
+	void AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome, bool bHasNumber);
+	void AddCreature(ECreature Kind, const FVector& Center, float Radius, float Speed, float Phase, const FLinearColor& Color, UStaticMesh* Mesh = nullptr);
+	void TickCreatures(float Now, float DeltaSeconds);
 	UStaticMeshComponent* AddShape(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color,
 		TArray<TObjectPtr<UStaticMeshComponent>>& OutComponents, const FRotator& Rotation = FRotator::ZeroRotator);
 	void BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, float Height, const FLinearColor& Color, UMaterialInterface* Override, bool bWater);

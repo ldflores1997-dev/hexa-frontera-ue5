@@ -1,15 +1,19 @@
 ﻿#include "HFBoardActor.h"
 
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
 #include "HFMatch.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/RandomStream.h"
+#include "Modules/ModuleManager.h"
 #include "ProceduralMeshComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -32,6 +36,12 @@ int64 PieceKey(int32 Kind, int32 Index, int32 Level)
 FLinearColor Shade(const FLinearColor& Color, float Factor)
 {
 	return FLinearColor(Color.R * Factor, Color.G * Factor, Color.B * Factor, 1.0f);
+}
+
+// Fase según la posición: el viento recorre el tablero como una ola.
+float WindPhase(const FVector& P, FRandomStream& Random)
+{
+	return static_cast<float>(FVector2D::DotProduct(FVector2D(P), WindDirection)) * 0.004f + Random.FRandRange(0.0f, 0.6f);
 }
 }
 
@@ -80,28 +90,123 @@ UMaterialInstanceDynamic* AHFBoardActor::MaterialFor(const FLinearColor& Color)
 	return Material;
 }
 
-UMaterialInterface* AHFBoardActor::TerrainMaterialOverride(const FString& TerrainId) const
+AHFBoardActor::FBiomeAssets AHFBoardActor::LoadBiome(const FString& TerrainId) const
 {
-	for (const FHFTerrainVisual& Visual : TerrainVisuals)
+	FBiomeAssets Biome;
+	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	const FString Folder = BiomeFolder / ScenarioId / TerrainId;
+
+	// Cada subcarpeta se recorre entera: los recursos de Fab traen sus propias carpetas de mallas, texturas y materiales.
+	auto Find = [&](const TCHAR* Subfolder, UClass* Class)
 	{
-		if (Visual.Scenario == ScenarioId && Visual.Terrain == TerrainId && !Visual.Material.IsNull())
+		TArray<FAssetData> Assets;
+		Registry.GetAssetsByPath(FName(*(Folder / Subfolder)), Assets, true);
+		Assets.Sort([](const FAssetData& A, const FAssetData& B) { return A.AssetName.LexicalLess(B.AssetName); });
+		TArray<UObject*> Found;
+		for (const FAssetData& Asset : Assets)
 		{
-			return Visual.Material.LoadSynchronous();
+			if (Asset.IsInstanceOf(Class))
+			{
+				if (UObject* Object = Asset.GetAsset())
+				{
+					Found.Add(Object);
+				}
+			}
+		}
+		return Found;
+	};
+	auto Meshes = [&](const TCHAR* Subfolder, TArray<UStaticMesh*>& Out)
+	{
+		for (UObject* Object : Find(Subfolder, UStaticMesh::StaticClass()))
+		{
+			Out.Add(CastChecked<UStaticMesh>(Object));
+		}
+	};
+
+	// La superficie suele traer el material y su instancia: se prefiere la instancia, que es la que se ajusta.
+	for (UObject* Object : Find(TEXT("Superficie"), UMaterialInterface::StaticClass()))
+	{
+		if (!Biome.Material || Object->IsA<UMaterialInstance>())
+		{
+			Biome.Material = CastChecked<UMaterialInterface>(Object);
 		}
 	}
-	return nullptr;
+	TArray<UStaticMesh*> Tiles;
+	TArray<UStaticMesh*> Landmarks;
+	Meshes(TEXT("Casilla"), Tiles);
+	Meshes(TEXT("Relieve"), Landmarks);
+	Biome.Tile = Tiles.Num() ? Tiles[0] : nullptr;
+	Biome.Landmark = Landmarks.Num() ? Landmarks[0] : nullptr;
+	Meshes(TEXT("Plantas"), Biome.Plants);
+	Meshes(TEXT("Rocas"), Biome.Rocks);
+	Meshes(TEXT("Suelo"), Biome.GroundCover);
+	Meshes(TEXT("Aves"), Biome.Birds);
+	Meshes(TEXT("Fauna"), Biome.Fauna);
+
+	// Lo que se configura en DefaultGame.ini manda sobre las carpetas.
+	auto Append = [](const TArray<TSoftObjectPtr<UStaticMesh>>& From, TArray<UStaticMesh*>& To)
+	{
+		for (const TSoftObjectPtr<UStaticMesh>& Soft : From)
+		{
+			if (UStaticMesh* Mesh = Soft.LoadSynchronous())
+			{
+				To.AddUnique(Mesh);
+			}
+		}
+	};
+	for (const FHFTerrainVisual& Visual : TerrainVisuals)
+	{
+		if (Visual.Scenario != ScenarioId || Visual.Terrain != TerrainId)
+		{
+			continue;
+		}
+		if (!Visual.Material.IsNull())
+		{
+			Biome.Material = Visual.Material.LoadSynchronous();
+		}
+		if (!Visual.Mesh.IsNull())
+		{
+			Biome.Tile = Visual.Mesh.LoadSynchronous();
+		}
+		if (!Visual.Landmark.IsNull())
+		{
+			Biome.Landmark = Visual.Landmark.LoadSynchronous();
+		}
+		Append(Visual.Plants, Biome.Plants);
+		Append(Visual.Rocks, Biome.Rocks);
+		Append(Visual.GroundCover, Biome.GroundCover);
+		Append(Visual.Birds, Biome.Birds);
+		Append(Visual.Fauna, Biome.Fauna);
+	}
+	return Biome;
 }
 
-UStaticMesh* AHFBoardActor::TerrainMeshOverride(const FString& TerrainId) const
+UStaticMeshComponent* AHFBoardActor::AddAsset(UStaticMesh* Mesh, const FVector& Location, const FRotator& Rotation, float Scale)
 {
-	for (const FHFTerrainVisual& Visual : TerrainVisuals)
-	{
-		if (Visual.Scenario == ScenarioId && Visual.Terrain == TerrainId && !Visual.Mesh.IsNull())
-		{
-			return Visual.Mesh.LoadSynchronous();
-		}
-	}
-	return nullptr;
+	// Como AddShape, pero respeta los materiales que trae la malla.
+	UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(this);
+	Component->SetStaticMesh(Mesh);
+	Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Component->SetupAttachment(Root);
+	Component->SetRelativeLocationAndRotation(Location, Rotation);
+	Component->SetRelativeScale3D(FVector(Scale));
+	Component->RegisterComponent();
+	TileComponents.Add(Component);
+	return Component;
+}
+
+float AHFBoardActor::FitScale(const UStaticMesh* Mesh, float Height) const
+{
+	const float MeshHeight = 2.0f * static_cast<float>(Mesh->GetBounds().BoxExtent.Z);
+	return MeshHeight > 1.0f ? Height / MeshHeight : 1.0f;
+}
+
+FVector AHFBoardActor::GroundedLocation(const UStaticMesh* Mesh, const FVector& Spot, const FRotator& Rotation, float Scale) const
+{
+	// El pivote de un modelo importado puede estar en cualquier lado: se apoya el centro de su base.
+	const FBoxSphereBounds Bounds = Mesh->GetBounds();
+	const FVector Bottom(Bounds.Origin.X, Bounds.Origin.Y, Bounds.Origin.Z - Bounds.BoxExtent.Z);
+	return Spot - Rotation.RotateVector(Bottom * Scale);
 }
 
 UStaticMeshComponent* AHFBoardActor::AddShape(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color,
@@ -169,10 +274,19 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 	ClearComponents(PieceComponents);
 	ClearComponents(StatusComponents);
 	ClearHighlights();
+	for (UHierarchicalInstancedStaticMeshComponent* Cover : GroundCoverComponents)
+	{
+		if (Cover)
+		{
+			Cover->DestroyComponent();
+		}
+	}
+	GroundCoverComponents.Reset();
 	Motions.Reset();
 	Emitters.Reset();
 	Waters.Reset();
 	Glows.Reset();
+	Creatures.Reset();
 	for (FPuff& Puff : Puffs)
 	{
 		if (UStaticMeshComponent* Component = Puff.Component.Get())
@@ -207,6 +321,7 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		EdgeVertices[E] = FIntPoint(Edges[static_cast<size_t>(E)].a, Edges[static_cast<size_t>(E)].b);
 	}
 
+	TMap<int32, FBiomeAssets> Biomes; // por terreno, para buscar los recursos una sola vez
 	for (int32 T = 0; T < TileCenters.Num(); ++T)
 	{
 		const hf::Tile& Tile = Tiles[static_cast<size_t>(T)];
@@ -225,14 +340,19 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		}
 		const FLinearColor Color = FHFMatch::ToLinear(Terrain.color);
 		const FString TerrainId = FHFMatch::ToFString(Terrain.id);
-		if (UStaticMesh* Replacement = TerrainMeshOverride(TerrainId))
+		if (!Biomes.Contains(Tile.terrain))
+		{
+			Biomes.Add(Tile.terrain, LoadBiome(TerrainId));
+		}
+		const FBiomeAssets& Biome = Biomes[Tile.terrain];
+		if (Biome.Tile)
 		{
 			const float Scale = TileRadius * (1.0f - TileGap) / 100.0f;
-			UStaticMeshComponent* Custom = AddShape(Replacement, FVector(TileCenters[T], 0.0f),
+			UStaticMeshComponent* Custom = AddShape(Biome.Tile, FVector(TileCenters[T], 0.0f),
 				FVector(Scale, Scale, TileHeights[T] / 100.0f), Color, TileComponents);
-			if (UMaterialInterface* Override = TerrainMaterialOverride(TerrainId))
+			if (Biome.Material)
 			{
-				Custom->SetMaterial(0, Override);
+				Custom->SetMaterial(0, Biome.Material);
 			}
 			else
 			{
@@ -242,9 +362,27 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		else
 		{
 			const FString Decoration = FHFMatch::ToFString(Terrain.decoration);
-			BuildTileMesh(T, Corners, TileHeights[T], Color, TerrainMaterialOverride(TerrainId), Decoration == TEXT("coral"));
+			BuildTileMesh(T, Corners, TileHeights[T], Color, Biome.Material, Decoration == TEXT("coral"));
 		}
+		const int32 FirstShape = TileComponents.Num();
+		const int32 FirstMotion = Motions.Num();
+		const int32 FirstCreature = Creatures.Num();
 		AddDecoration(T, FHFMatch::ToFString(Terrain.decoration), TerrainId, Color, Tile.number > 0);
+		if (Biome.ReplacesShapes())
+		{
+			// Con modelos propios, las formas básicas de esta casilla sobran; el humo, las luces y el agua se quedan.
+			for (int32 I = FirstShape; I < TileComponents.Num(); ++I)
+			{
+				if (TileComponents[I])
+				{
+					TileComponents[I]->DestroyComponent();
+				}
+			}
+			TileComponents.SetNum(FirstShape);
+			Motions.SetNum(FirstMotion);
+			Creatures.SetNum(FirstCreature);
+			AddBiomeAssets(T, Biome, Tile.number > 0);
+		}
 		if (Tile.number > 0)
 		{
 			AddNumberToken(T, Tile.number);
@@ -463,8 +601,7 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		return Base + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0f);
 	};
 	auto Spin = [&]() { return FRotator(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f); };
-	// Fase según la posición: el viento recorre el tablero como una ola.
-	auto WindPhase = [&](const FVector& P) { return static_cast<float>(FVector2D::DotProduct(FVector2D(P), WindDirection)) * 0.004f + Random.FRandRange(0.0f, 0.6f); };
+	auto WindPhase = [&](const FVector& P) { return ::WindPhase(P, Random); };
 
 	// Las formas básicas del motor miden 100 cm y tienen el pivote en el centro.
 	if (Decoration == TEXT("trees"))
@@ -476,6 +613,12 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 			AddShape(CylinderMesh, P + FVector(0, 0, 30 * S), FVector(0.12f, 0.12f, 0.6f) * S, FLinearColor(0.25f, 0.14f, 0.06f), TileComponents);
 			UStaticMeshComponent* Crown = AddShape(ConeMesh, P + FVector(0, 0, 95 * S), FVector(0.55f, 0.55f, 0.9f) * S, Shade(TerrainColor, 0.7f), TileComponents);
 			AddMotion(Crown, EMotion::Sway, P + FVector(0, 0, 50 * S), 4.0f, WindPhase(P));
+		}
+		// Un par de aves da vueltas sobre el bosque, una en cada sentido.
+		for (int32 I = 0; I < 2; ++I)
+		{
+			AddCreature(ECreature::Bird, Base + FVector(0, 0, 240 + 50 * I), TileRadius * Random.FRandRange(0.45f, 0.75f),
+				Random.FRandRange(0.4f, 0.6f) * (I == 0 ? 1.0f : -1.0f), Random.FRandRange(0.0f, 2.0f * UE_PI), FLinearColor(0.92f, 0.92f, 0.9f));
 		}
 	}
 	else if (Decoration == TEXT("rocks") || Decoration == TEXT("crater"))
@@ -539,6 +682,12 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		else
 		{
 			AddEmitter(Base + FVector(0, 0, 520), EPuff::Snow, 0.12f, Spread * 1.1f);
+			// Cóndores planeando en rondas amplias, por encima de la cumbre.
+			for (int32 I = 0; I < 2; ++I)
+			{
+				AddCreature(ECreature::Glider, Base + FVector(0, 0, 700 + 80 * I), TileRadius * Random.FRandRange(0.9f, 1.4f),
+					Random.FRandRange(0.18f, 0.25f) * (I == 0 ? 1.0f : -1.0f), Random.FRandRange(0.0f, 2.0f * UE_PI), FLinearColor(0.04f, 0.04f, 0.04f));
+			}
 		}
 	}
 	else if (Decoration == TEXT("coral"))
@@ -569,6 +718,8 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 			UStaticMeshComponent* Dome = AddShape(SphereMesh, RandomSpot(), FVector(S, S, S * 0.8f), FLinearColor(0.85f, 0.9f, 0.92f), TileComponents);
 			AddMotion(Dome, EMotion::Twinkle, Dome->GetRelativeLocation(), 0.025f, Random.FRandRange(0.0f, 6.0f)); // respiran despacio
 		}
+		// Un dron de mantenimiento recorre los domos.
+		AddCreature(ECreature::Drone, Base + FVector(0, 0, 180), TileRadius * 0.4f, 1.0f, Random.FRandRange(0.0f, 6.0f), FLinearColor(0.8f, 0.82f, 0.85f));
 	}
 	else if (Decoration == TEXT("grass") || Decoration == TEXT("crops"))
 	{
@@ -630,6 +781,9 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 			UStaticMeshComponent* Flag = AddShape(CubeMesh, P + FVector(0, 22, 110), FVector(0.03f, 0.45f, 0.6f), Shade(TerrainColor, 1.4f), TileComponents);
 			AddMotion(Flag, EMotion::Flutter, P + FVector(0, 0, 110), 18.0f, WindPhase(P));
 		}
+		// Cada telar suelta un dirigible de seda que rodea la ciudad entera.
+		AddCreature(ECreature::Airship, FVector(0, 0, TileBaseHeight + TerrainHeightScale + 800 + 90 * (Tile % 3)), BoardExtent * Random.FRandRange(1.1f, 1.35f),
+			0.06f * (Tile % 2 == 0 ? 1.0f : -1.0f), Random.FRandRange(0.0f, 2.0f * UE_PI), Shade(TerrainColor, 1.4f));
 	}
 }
 
@@ -656,6 +810,277 @@ void AHFBoardActor::AddEmitter(const FVector& Origin, EPuff Kind, float Interval
 	Emitter.Spread = Spread;
 	Emitter.NextTime = FMath::FRandRange(0.0f, Interval);
 	Emitters.Add(Emitter);
+}
+
+void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome, bool bHasNumber)
+{
+	FRandomStream Random(static_cast<int32>(Tile * 104729 + static_cast<int32>(GetTypeHash(ScenarioId) & 0x7FFFFF)));
+	const FVector Base(TileCenters[Tile], TileHeights[Tile]);
+	const float Spread = TileRadius * 0.6f;
+	const float MinFraction = bHasNumber ? 0.35f : 0.0f; // la ficha de número va en el centro
+	auto Pick = [&](const TArray<UStaticMesh*>& From) { return From[Random.RandRange(0, From.Num() - 1)]; };
+	auto RandomPoint = [&](float Reach)
+	{
+		const float Angle = Random.FRandRange(0.0f, 2.0f * UE_PI);
+		const float Distance = FMath::Sqrt(FMath::Lerp(MinFraction * MinFraction, 1.0f, Random.FRand())) * Spread * Reach;
+		return Base + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0f);
+	};
+	// Lugares ocupados (centro y radio), para que rocas, plantas y relieve no queden encimados.
+	TArray<TPair<FVector2D, float>> Taken;
+	auto FreeSpot = [&](float Clearance, FVector& OutSpot)
+	{
+		for (int32 Try = 0; Try < 10; ++Try)
+		{
+			const FVector Spot = RandomPoint(1.0f);
+			bool bFree = true;
+			for (const TPair<FVector2D, float>& Used : Taken)
+			{
+				bFree &= FVector2D::Distance(FVector2D(Spot), Used.Key) >= Clearance + Used.Value;
+			}
+			if (bFree)
+			{
+				Taken.Add({FVector2D(Spot), Clearance});
+				OutSpot = Spot;
+				return true;
+			}
+		}
+		return false;
+	};
+
+	if (Biome.Landmark)
+	{
+		// El relieve (volcán, nevado, domo) ocupa el centro y se achica si no entra en la casilla.
+		const FVector Extent = Biome.Landmark->GetBounds().BoxExtent;
+		const float Footprint = FMath::Max(1.0f, static_cast<float>(FMath::Max(Extent.X, Extent.Y)));
+		const float Scale = FMath::Min(FitScale(Biome.Landmark, LandmarkHeight), TileRadius * 0.8f / Footprint);
+		const FRotator Rotation(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f);
+		AddAsset(Biome.Landmark, GroundedLocation(Biome.Landmark, Base, Rotation, Scale), Rotation, Scale);
+		Taken.Add({FVector2D(Base), Footprint * Scale * 0.8f});
+	}
+
+	for (int32 I = 0; Biome.Rocks.Num() && I < RocksPerTile; ++I)
+	{
+		FVector Spot;
+		if (!FreeSpot(RockHeight * 0.8f, Spot))
+		{
+			continue;
+		}
+		UStaticMesh* Mesh = Pick(Biome.Rocks);
+		const float Scale = FitScale(Mesh, RockHeight) * Random.FRandRange(0.6f, 1.4f);
+		// Inclinadas y un poco hundidas, para que parezcan asentadas y no apoyadas.
+		const FRotator Rotation(Random.FRandRange(-8.0f, 8.0f), Random.FRandRange(0.0f, 360.0f), Random.FRandRange(-8.0f, 8.0f));
+		const float Sink = 0.15f * 2.0f * static_cast<float>(Mesh->GetBounds().BoxExtent.Z) * Scale;
+		AddAsset(Mesh, GroundedLocation(Mesh, Spot - FVector(0, 0, Sink), Rotation, Scale), Rotation, Scale);
+	}
+
+	for (int32 I = 0; Biome.Plants.Num() && I < PlantsPerTile; ++I)
+	{
+		FVector Spot;
+		if (!FreeSpot(PlantHeight * 0.3f, Spot))
+		{
+			continue;
+		}
+		UStaticMesh* Mesh = Pick(Biome.Plants);
+		const float Scale = FitScale(Mesh, PlantHeight) * Random.FRandRange(0.75f, 1.25f);
+		const FRotator Rotation(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f);
+		UStaticMeshComponent* Plant = AddAsset(Mesh, GroundedLocation(Mesh, Spot, Rotation, Scale), Rotation, Scale);
+		// Vaivén suave desde la base; el material de la planta suele sumar su propio viento en las hojas.
+		AddMotion(Plant, EMotion::Sway, Spot, 1.5f, WindPhase(Spot, Random));
+	}
+
+	// Pasto, flores y piedritas: muchas copias en un solo componente instanciado por malla.
+	for (UStaticMesh* Mesh : Biome.GroundCover)
+	{
+		UHierarchicalInstancedStaticMeshComponent* Cover = NewObject<UHierarchicalInstancedStaticMeshComponent>(this);
+		Cover->SetStaticMesh(Mesh);
+		Cover->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Cover->SetupAttachment(Root);
+		Cover->RegisterComponent();
+		const float Fit = FitScale(Mesh, GroundCoverHeight);
+		const int32 Count = FMath::Max(1, GroundCoverPerTile / Biome.GroundCover.Num());
+		for (int32 I = 0; I < Count; ++I)
+		{
+			const FRotator Rotation(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f);
+			const float Scale = Fit * Random.FRandRange(0.7f, 1.3f);
+			Cover->AddInstance(FTransform(Rotation, GroundedLocation(Mesh, RandomPoint(1.15f), Rotation, Scale), FVector(Scale)));
+		}
+		GroundCoverComponents.Add(Cover);
+	}
+
+	for (int32 I = 0; Biome.Birds.Num() && I < BirdsPerTile; ++I)
+	{
+		AddCreature(ECreature::Bird, Base + FVector(0, 0, 240 + 50 * I), TileRadius * Random.FRandRange(0.45f, 0.8f),
+			Random.FRandRange(0.35f, 0.55f) * (I % 2 == 0 ? 1.0f : -1.0f), Random.FRandRange(0.0f, 2.0f * UE_PI), FLinearColor::White, Pick(Biome.Birds));
+	}
+	for (int32 I = 0; Biome.Fauna.Num() && I < FaunaPerTile; ++I)
+	{
+		AddCreature(ECreature::Walker, Base, Spread, 18.0f, Random.FRandRange(0.0f, 6.0f), FLinearColor::White, Pick(Biome.Fauna));
+	}
+}
+
+void AHFBoardActor::AddCreature(ECreature Kind, const FVector& Center, float Radius, float Speed, float Phase, const FLinearColor& Color, UStaticMesh* Mesh)
+{
+	FCreature Creature;
+	Creature.Kind = Kind;
+	Creature.Center = Center;
+	Creature.Radius = Radius;
+	Creature.Speed = Speed;
+	Creature.Phase = Phase;
+	Creature.Location = Center;
+	Creature.Target = Center;
+	Creature.WaitUntil = FMath::FRandRange(0.0f, 3.0f);
+	auto Part = [&](UStaticMesh* Shape, const FVector& Offset, const FVector& Scale, const FLinearColor& PartColor, EPart PartKind, const FRotator& Rotation = FRotator::ZeroRotator)
+	{
+		UStaticMeshComponent* Component = AddShape(Shape, Center + Offset, Scale, PartColor, TileComponents, Rotation);
+		Creature.Parts.Add({Component, PartKind, Offset, Rotation.Quaternion()});
+	};
+
+	if (Mesh)
+	{
+		// Modelo propio: una sola pieza escalada por su alto (los que caminan) o por su envergadura (las aves).
+		const FBoxSphereBounds Bounds = Mesh->GetBounds();
+		const float Span = 2.0f * static_cast<float>(FMath::Max(Bounds.BoxExtent.X, Bounds.BoxExtent.Y));
+		const float Scale = Kind == ECreature::Walker ? FitScale(Mesh, FaunaHeight) : BirdSize / FMath::Max(1.0f, Span);
+		const FQuat Facing = FRotator(0.0f, FaunaYawOffset, 0.0f).Quaternion();
+		// Los que caminan se apoyan por la base; las aves se centran en su cuerpo.
+		const FVector Pivot(Bounds.Origin.X, Bounds.Origin.Y, Kind == ECreature::Walker ? Bounds.Origin.Z - Bounds.BoxExtent.Z : Bounds.Origin.Z);
+		UStaticMeshComponent* Component = AddAsset(Mesh, Center, Facing.Rotator(), Scale);
+		Creature.Parts.Add({Component, EPart::Fixed, -Facing.RotateVector(Pivot * Scale), Facing});
+	}
+	else
+	{
+		// Las formas básicas miden 100 cm: una escala de 0.3 da 30 cm.
+		switch (Kind)
+		{
+		case ECreature::Bird: // gaviota
+			Part(SphereMesh, FVector::ZeroVector, FVector(0.3f, 0.1f, 0.1f), Color, EPart::Fixed);
+			Part(CubeMesh, FVector(0, -16, 0), FVector(0.1f, 0.3f, 0.01f), Shade(Color, 0.65f), EPart::WingLeft);
+			Part(CubeMesh, FVector(0, 16, 0), FVector(0.1f, 0.3f, 0.01f), Shade(Color, 0.65f), EPart::WingRight);
+			break;
+		case ECreature::Glider: // cóndor: alas largas con las puntas abiertas
+			Part(SphereMesh, FVector::ZeroVector, FVector(0.45f, 0.16f, 0.14f), Color, EPart::Fixed);
+			Part(SphereMesh, FVector(22, 0, 2), FVector(0.1f, 0.1f, 0.1f), FLinearColor(0.85f, 0.85f, 0.82f), EPart::Fixed); // collar blanco
+			Part(CubeMesh, FVector(0, -34, 0), FVector(0.18f, 0.6f, 0.015f), Color, EPart::WingLeft);
+			Part(CubeMesh, FVector(0, 34, 0), FVector(0.18f, 0.6f, 0.015f), Color, EPart::WingRight);
+			break;
+		case ECreature::Drone:
+			Part(CubeMesh, FVector::ZeroVector, FVector(0.3f, 0.3f, 0.08f), Color, EPart::Fixed);
+			for (int32 I = 0; I < 4; ++I)
+			{
+				const FVector Arm((I % 2 == 0 ? 1.0f : -1.0f) * 18.0f, (I < 2 ? 1.0f : -1.0f) * 18.0f, 6.0f);
+				Part(CylinderMesh, Arm, FVector(0.16f, 0.16f, 0.01f), FLinearColor(0.1f, 0.1f, 0.1f), EPart::Rotor);
+			}
+			break;
+		case ECreature::Airship:
+			Part(SphereMesh, FVector::ZeroVector, FVector(2.6f, 0.9f, 0.9f), Color, EPart::Fixed);
+			Part(CubeMesh, FVector(0, 0, -60), FVector(0.8f, 0.3f, 0.25f), FLinearColor(0.35f, 0.24f, 0.14f), EPart::Fixed); // góndola de madera
+			Part(CubeMesh, FVector(-120, 0, 30), FVector(0.5f, 0.02f, 0.4f), Shade(Color, 0.7f), EPart::Fixed);
+			Part(CubeMesh, FVector(-120, 0, 0), FVector(0.5f, 0.4f, 0.02f), Shade(Color, 0.7f), EPart::Fixed);
+			Part(CylinderMesh, FVector(-50, 0, -60), FVector(0.4f, 0.4f, 0.02f), FLinearColor(0.75f, 0.55f, 0.2f), EPart::Rotor, FRotator(90.0f, 0.0f, 0.0f));
+			break;
+		case ECreature::Walker:
+			return; // sin modelo propio no hay animales que caminen
+		}
+	}
+	Creatures.Add(MoveTemp(Creature));
+}
+
+void AHFBoardActor::TickCreatures(float Now, float DeltaSeconds)
+{
+	for (FCreature& Creature : Creatures)
+	{
+		const float T = Now + Creature.Phase;
+		const float Turn = Creature.Speed >= 0.0f ? 1.0f : -1.0f;
+		FVector Location = Creature.Center;
+		FQuat Body = FQuat::Identity;
+		float Flap = 0.0f;
+		switch (Creature.Kind)
+		{
+		case ECreature::Bird:
+		case ECreature::Glider:
+		case ECreature::Airship:
+		{
+			// Rondas: avanzan por la tangente del círculo y se inclinan hacia adentro.
+			const float Angle = Creature.Phase + Creature.Speed * Now;
+			const float Bob = Creature.Kind == ECreature::Airship ? 25.0f * FMath::Sin(T * 0.4f) : 20.0f * FMath::Sin(T * 0.7f);
+			Location += FVector(FMath::Cos(Angle) * Creature.Radius, FMath::Sin(Angle) * Creature.Radius, Bob);
+			const float Heading = FMath::RadiansToDegrees(Angle) + 90.0f * Turn;
+			const float Bank = Creature.Kind == ECreature::Bird ? 20.0f : Creature.Kind == ECreature::Glider ? 12.0f : 0.0f;
+			const float Pitch = Creature.Kind == ECreature::Airship ? 1.5f * FMath::Sin(T * 0.5f) : 0.0f;
+			Body = FRotator(Pitch, Heading, -Bank * Turn).Quaternion();
+			if (Creature.Kind == ECreature::Bird)
+			{
+				Flap = 35.0f * FMath::Sin(T * 11.0f);
+			}
+			else if (Creature.Kind == ECreature::Glider)
+			{
+				// Planean con las alas casi quietas y cada tanto dan unos aletazos.
+				const float Burst = FMath::Pow(FMath::Max(0.0f, FMath::Sin(T * 0.25f)), 12.0f);
+				Flap = 4.0f * FMath::Sin(T * 1.3f) + 30.0f * Burst * FMath::Sin(T * 9.0f);
+			}
+			break;
+		}
+		case ECreature::Drone:
+			Location += FVector(FMath::Sin(T * 0.31f) * Creature.Radius, FMath::Sin(T * 0.23f + 1.3f) * Creature.Radius, 10.0f * FMath::Sin(T * 2.1f));
+			Body = FRotator(3.0f * FMath::Sin(T * 1.7f), FMath::RadiansToDegrees(T * 0.2f), 3.0f * FMath::Cos(T * 1.3f)).Quaternion();
+			break;
+		case ECreature::Walker:
+		{
+			// Camina hasta un punto, se queda un rato (pastando) y elige otro.
+			if (Now >= Creature.WaitUntil)
+			{
+				const FVector ToTarget = Creature.Target - Creature.Location;
+				const float Distance = static_cast<float>(FVector2D(ToTarget).Size());
+				if (Distance < 5.0f)
+				{
+					Creature.WaitUntil = Now + FMath::FRandRange(2.0f, 6.0f);
+					const float Angle = FMath::FRandRange(0.0f, 2.0f * UE_PI);
+					const float Reach = FMath::Sqrt(FMath::FRand()) * Creature.Radius;
+					Creature.Target = Creature.Center + FVector(FMath::Cos(Angle) * Reach, FMath::Sin(Angle) * Reach, 0.0f);
+				}
+				else
+				{
+					// Primero gira hacia el destino y recién después avanza.
+					const float Wanted = FMath::RadiansToDegrees(FMath::Atan2(ToTarget.Y, ToTarget.X));
+					const float Delta = FRotator::NormalizeAxis(Wanted - Creature.Yaw);
+					Creature.Yaw += FMath::Clamp(Delta, -90.0f * DeltaSeconds, 90.0f * DeltaSeconds);
+					if (FMath::Abs(Delta) < 30.0f)
+					{
+						const FVector Forward = FRotator(0.0f, Creature.Yaw, 0.0f).Vector();
+						Creature.Location += Forward * FMath::Min(Creature.Speed * DeltaSeconds, Distance);
+					}
+				}
+			}
+			const bool bWalking = Now >= Creature.WaitUntil;
+			Location = Creature.Location + FVector(0, 0, bWalking ? 1.5f * FMath::Abs(FMath::Sin(T * 6.0f)) : 0.0f);
+			Body = FRotator(0.0f, Creature.Yaw, 0.0f).Quaternion();
+			break;
+		}
+		}
+
+		for (const FCreaturePart& Part : Creature.Parts)
+		{
+			UStaticMeshComponent* Component = Part.Component.Get();
+			if (!Component)
+			{
+				continue;
+			}
+			FVector Offset = Part.Offset;
+			FQuat Local = Part.Rotation;
+			if (Part.Kind == EPart::WingLeft || Part.Kind == EPart::WingRight)
+			{
+				// Las dos alas suben y bajan juntas, cada una girando sobre su lado del cuerpo.
+				const FQuat Hinge(FVector::ForwardVector, FMath::DegreesToRadians(Part.Kind == EPart::WingLeft ? -Flap : Flap));
+				Offset = Hinge.RotateVector(Offset);
+				Local = Hinge * Local;
+			}
+			else if (Part.Kind == EPart::Rotor)
+			{
+				Local = FQuat(Part.Rotation.GetUpVector(), Now * 40.0f) * Part.Rotation;
+			}
+			Component->SetRelativeLocationAndRotation(Location + Body.RotateVector(Offset), Body * Local);
+		}
+	}
 }
 
 void AHFBoardActor::SpawnPuff(const FEmitter& Emitter, float Now)
@@ -794,6 +1219,8 @@ void AHFBoardActor::TickLife(float Now, float DeltaSeconds)
 		}
 		}
 	}
+
+	TickCreatures(Now, DeltaSeconds);
 
 	// Luces que laten (lava).
 	for (const FGlow& Glow : Glows)
