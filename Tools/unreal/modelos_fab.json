@@ -1,0 +1,472 @@
+{
+ "_comentario": "Modelos gratis (licencia Personal) de Quixel Megascans en Fab elegidos para cada casilla. carpeta = tipo de uso (Plantas, Suelo, Rocas, Relieve); Tools/unreal/ordenar_fab.py los asigna.",
+ "islas_volcanicas": {
+  "palmar": [
+   {
+    "titulo": "Alexandra Palm",
+    "uid": "de222652-2e7f-45e0-9710-0bbed55a753e",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "Pink Cordyline",
+    "uid": "ed229d50-3e1f-499e-8b40-1cff82328807",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "Lady Fern",
+    "uid": "3eead001-af7f-4b65-afcc-89c368f089bc",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "Beech Fern",
+    "uid": "00b15724-f11f-448d-8710-3167dab82cda",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "Ground Cover",
+    "uid": "e1f6a034-919c-4f31-8260-7b1a878986b0",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Wood Sorrel",
+    "uid": "c30ed226-e544-4a10-9314-6c9601afdaec",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Mossy Rocks",
+    "uid": "bc7eac50-24f4-4fe9-b52f-a9350a0d2216",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Spotted Red Mushrooms",
+    "uid": "811bf78e-fab0-4072-9e4e-4b424cb36416",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Mossy Forest Rock",
+    "uid": "957f0b2e-59a4-42dd-976f-11edc1bb7bc4",
+    "carpeta": "Rocas"
+   }
+  ],
+  "campo_obsidiana": [
+   {
+    "titulo": "Icelandic Jagged Lava Outcrop",
+    "uid": "d094c31b-f3c7-4f9a-b99b-714d765cc495",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Icelandic Rock Formation",
+    "uid": "54167f2f-e607-4326-915e-7e7f18fd1328",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Icelandic Rock",
+    "uid": "2852b96c-c5e1-4bcc-a392-96ce2cb2fa1d",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Icelandic Rock Plates",
+    "uid": "1eaf9382-44a9-4d11-9794-5fd4b57b01d2",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Icelandic Rocky Ground",
+    "uid": "8de9b1d5-dccb-420f-b7a9-710f61ed853f",
+    "carpeta": "Suelo"
+   }
+  ],
+  "arrecife": [
+   {
+    "titulo": "Beach Boulder",
+    "uid": "57150ce5-9e47-4aad-a996-a3ef8ee3271f",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Nordic Beach Rock Formation",
+    "uid": "26f8fb5c-aa8e-4911-9db8-82805cee35f9",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Nordic Beach Rocks",
+    "uid": "80de6243-15d8-4a4e-892b-c8223df27330",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Nordic Beach Rocky Ground",
+    "uid": "326208d9-196c-40b8-bafb-10b0c3bc3dcf",
+    "carpeta": "Suelo"
+   }
+  ],
+  "fumarola": [
+   {
+    "titulo": "Icelandic Rock Plates",
+    "uid": "9c2ef7e4-81d6-4b0e-9587-1f89fcf56a97",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Icelandic Rock",
+    "uid": "2852b96c-c5e1-4bcc-a392-96ce2cb2fa1d",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Icelandic Rocky Ground",
+    "uid": "8de9b1d5-dccb-420f-b7a9-710f61ed853f",
+    "carpeta": "Suelo"
+   }
+  ],
+  "crater": [
+   {
+    "titulo": "Icelandic Jagged Lava Outcrop",
+    "uid": "d094c31b-f3c7-4f9a-b99b-714d765cc495",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Icelandic Rock Formation",
+    "uid": "54167f2f-e607-4326-915e-7e7f18fd1328",
+    "carpeta": "Rocas"
+   }
+  ]
+ },
+ "colonia_marte": {
+  "casquete": [
+   {
+    "titulo": "Ice Cliff",
+    "uid": "198d6561-73ca-4d4e-adc5-efe457f5c793",
+    "carpeta": "Relieve"
+   },
+   {
+    "titulo": "Snow Pile",
+    "uid": "8e55612b-1f02-4262-aad4-f1a00dfa7c62",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Snow Clump",
+    "uid": "7671b700-ce1a-4b49-9d1b-3add4a6a33c3",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Snowy Ground",
+    "uid": "6034e934-aa61-49a2-9c1c-82eef0b46d97",
+    "carpeta": "Suelo"
+   }
+  ],
+  "regolito": [
+   {
+    "titulo": "Sandstone Rocky Ground",
+    "uid": "d6c87516-52ea-40d0-a3e5-c1e52d4ad88f",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Desert Western Cluster Rock Large 04",
+    "uid": "2ddb955b-d3c1-441e-93b5-77260b033d26",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Desert Western Ledge Rock Medium 05",
+    "uid": "17e61fbb-ffcb-486b-8bad-074023acc4ea",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Desert Western Rock Medium 08",
+    "uid": "11700737-077c-416b-a005-53d0b5e1e285",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Desert Western Pile Rock Small 01",
+    "uid": "fd3e0024-57f5-485f-aab3-ec5fb96a34f6",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Desert Western Patch Ground Slate Small 01",
+    "uid": "41bf5e83-ba2c-4dd2-8b46-fb18b84538a9",
+    "carpeta": "Suelo"
+   }
+  ],
+  "campo_solar": [
+   {
+    "titulo": "Corrugated Metal Sheet",
+    "uid": "60054f60-89df-40f3-8b1e-0d00b4e2d48f",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Desert Western Patch Ground Slate Small 01",
+    "uid": "41bf5e83-ba2c-4dd2-8b46-fb18b84538a9",
+    "carpeta": "Suelo"
+   }
+  ],
+  "planta_oxigeno": [
+   {
+    "titulo": "Sandstone Rocky Ground",
+    "uid": "d6c87516-52ea-40d0-a3e5-c1e52d4ad88f",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Desert Western Pile Rock Small 01",
+    "uid": "fd3e0024-57f5-485f-aab3-ec5fb96a34f6",
+    "carpeta": "Rocas"
+   }
+  ],
+  "crater": [
+   {
+    "titulo": "Desert Western Cliff Layered XL 14",
+    "uid": "23639c4c-ca70-49f1-b462-afaa454252b2",
+    "carpeta": "Relieve"
+   },
+   {
+    "titulo": "Sandstone Boulder",
+    "uid": "9317cac7-dbd3-4ff7-a838-af23db59e454",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Desert Western Cluster Rock Large 04",
+    "uid": "2ddb955b-d3c1-441e-93b5-77260b033d26",
+    "carpeta": "Rocas"
+   }
+  ]
+ },
+ "andes_valles": {
+  "mina": [
+   {
+    "titulo": "Nordic Forest Cliff Large",
+    "uid": "3a67a52f-0d3c-4f84-aa60-67b771062e0a",
+    "carpeta": "Relieve"
+   },
+   {
+    "titulo": "Limestone Rubble",
+    "uid": "6a6bfa70-8307-4b76-b55f-7fad9cbfcdea",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Nordic Forest Cluster Rock Large",
+    "uid": "37fe30a2-d452-485e-b13a-109c12781f82",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Nordic Forest Rock Small",
+    "uid": "720455d3-89e2-4073-881c-267835a0a982",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Stone Rubble Pile",
+    "uid": "046f4f4f-ffa2-4d63-ae22-4524ce10e529",
+    "carpeta": "Rocas"
+   }
+  ],
+  "puna": [
+   {
+    "titulo": "Dry Grass",
+    "uid": "472c99c7-2d67-4190-9ad4-3bb04cfc80f3",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Thatching Grass",
+    "uid": "0311f445-453b-48d1-adcf-5d38162a5fa7",
+    "carpeta": "Suelo",
+    "alias": "Quarry Slate Grass Thatching Common Set 01"
+   },
+   {
+    "titulo": "Wild Grass",
+    "uid": "5848d16a-f6ab-45a7-b69f-fe21dcbe4669",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Dead Shrubs",
+    "uid": "d8fbec55-5d03-41ba-bce3-1c7ee42512a4",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "Tundra Mossy Boulder",
+    "uid": "23cfedaf-dbfd-4402-a64d-095021355728",
+    "carpeta": "Rocas"
+   }
+  ],
+  "vinedo": [
+   {
+    "titulo": "English Ivy",
+    "uid": "03c1d983-769b-408e-b520-8e15b097390c",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "Elderberry",
+    "uid": "d72dd7bb-d514-4a14-8b4b-3333c99057fb",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "Wooden Barrel",
+    "uid": "a9d0d237-ef5b-47f3-b153-f6b4ab9733f1",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Red Grapes",
+    "uid": "1c3d7e5b-24f9-4568-81c1-08aad409a73c",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Curbside Weeds",
+    "uid": "d87922e7-3131-49b3-bcd7-ae05f3731721",
+    "carpeta": "Suelo"
+   }
+  ],
+  "valle": [
+   {
+    "titulo": "Wheat Grass",
+    "uid": "9070350f-dea8-40ec-ba57-0777a2c1fb24",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Wild Grass",
+    "uid": "50d9a417-73ed-4132-9421-6be3d4f7432e",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Field Poppy",
+    "uid": "66cb2706-bc30-4f26-92ec-cad48723bd4a",
+    "carpeta": "Suelo"
+   },
+   {
+    "titulo": "Common Hazel",
+    "uid": "81bc7ba6-4686-4f94-9d2b-83eb1fdc4079",
+    "carpeta": "Plantas"
+   },
+   {
+    "titulo": "European Beech",
+    "uid": "d11cc01d-9422-41b7-950f-416c9ce79caf",
+    "carpeta": "Plantas"
+   }
+  ],
+  "salar": [
+   {
+    "titulo": "Snow Clump",
+    "uid": "7671b700-ce1a-4b49-9d1b-3add4a6a33c3",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Limestone Rocks",
+    "uid": "e55754f9-21fa-4cba-865b-d9a101df1c89",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Limestone Slab",
+    "uid": "d1613201-373d-4403-92a6-fa43e2673c83",
+    "carpeta": "Rocas"
+   }
+  ],
+  "nevado": [
+   {
+    "titulo": "Massive Tundra Rock Formation",
+    "uid": "baed3859-eb3e-44fe-b148-99b16c825382",
+    "carpeta": "Relieve"
+   },
+   {
+    "titulo": "Snow Hill",
+    "uid": "61882812-0d2e-4b2a-a43b-9f2d019973a1",
+    "carpeta": "Relieve"
+   },
+   {
+    "titulo": "Snow Pile",
+    "uid": "8e55612b-1f02-4262-aad4-f1a00dfa7c62",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Large Tundra Rock Formation",
+    "uid": "b5269749-d75a-454e-a108-6fdfa2a9e918",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Tundra Mossy Boulder",
+    "uid": "70ea727a-4f22-478c-99f7-8ef23b9a0919",
+    "carpeta": "Rocas"
+   }
+  ]
+ },
+ "ciudad_flotante": {
+  "caldera": [
+   {
+    "titulo": "Old Metal Geyser",
+    "uid": "3d6cd3a5-0244-427c-a846-af16c35bfe73",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Metal Pipe Joint",
+    "uid": "dd99bd03-c37c-47c6-af8c-a0593048c52e",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Rusty Metal Barrel",
+    "uid": "5f4c0800-6c8d-4945-8fdf-6855ab6a566d",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Rusty Metal Gear",
+    "uid": "2454b403-5ff2-40de-b6f9-98d40eb647c7",
+    "carpeta": "Rocas"
+   }
+  ],
+  "fundicion": [
+   {
+    "titulo": "Rusty Metal Gear",
+    "uid": "451db76f-a416-46e4-a227-3f7965933c27",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Rusty Metal Gear",
+    "uid": "857daa02-061b-4558-9ff9-2fbe66f55b23",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Blacksmith Anvil",
+    "uid": "15d1a97e-5ef8-4cb9-8170-28ea88c6fade",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Rusty Metal Ring",
+    "uid": "b651e775-d42f-4160-9436-d672d43f4d27",
+    "carpeta": "Rocas"
+   }
+  ],
+  "telar": [
+   {
+    "titulo": "Rope Coil",
+    "uid": "8ec7aab4-8be8-442e-95ab-840a8fa32932",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Tarped Crate",
+    "uid": "8aa1f000-e6b2-48dc-b33d-e233fdf59956",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Wooden Crate",
+    "uid": "ae4d047d-f585-413c-9440-69e1af3935a5",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Bundled Rope Coil",
+    "uid": "7d418d8c-8daf-4dd0-8fb5-3af2b94bd135",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Small Rope Spool",
+    "uid": "4b571804-1632-42f3-9fc4-f001b2bb18e6",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Wooden Cable Reel",
+    "uid": "09bca95b-2b4c-4db3-a08f-56c025e88451",
+    "carpeta": "Rocas"
+   }
+  ],
+  "carbonera": [
+   {
+    "titulo": "Burnt Firewood Pack",
+    "uid": "06a51e44-9f42-4f57-8c07-b06dfdc34d6c",
+    "carpeta": "Rocas"
+   },
+   {
+    "titulo": "Burnt Debris Pack",
+    "uid": "1f6707fa-9f03-4553-a7df-b30986f7c11e",
+    "carpeta": "Rocas"
+   }
+  ]
+ }
+}

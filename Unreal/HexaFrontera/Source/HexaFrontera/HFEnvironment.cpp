@@ -8,6 +8,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/StaticMesh.h"
+#include "HFAssets.h"
 #include "HFMatch.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
@@ -104,7 +105,13 @@ void AHFEnvironment::ApplyScenario(const FHFMatch& Match, float BoardExtent)
 	Ground->SetRelativeScale3D(FVector(GroundScale, GroundScale, 1.0f));
 	Ground->SetRelativeLocation(FVector(0, 0, Env.ground == "clouds" ? -2500.0f : -5.0f));
 	Ground->SetVisibility(Env.ground != "clouds");
-	if (UMaterialInterface* Base = Cast<UMaterialInterface>(FSoftObjectPath(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")).TryLoad()))
+	// Con texturas (aplicar_texturas.py): mar con ondas, arena o pasto; si no, el color plano del mundo.
+	if (UMaterialInterface* Textured = HFAssets::LoadIfExists<UMaterialInterface>(
+		FString::Printf(TEXT("/Game/Biomas/%s/_Entorno/MI_Suelo"), *FHFMatch::ToFString(Match.GetScenario().id))))
+	{
+		Ground->SetMaterial(0, Textured);
+	}
+	else if (UMaterialInterface* Base = Cast<UMaterialInterface>(FSoftObjectPath(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")).TryLoad()))
 	{
 		UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Base, this);
 		Material->SetVectorParameterValue(TEXT("Color"), FHFMatch::ToLinear(Env.groundColor));

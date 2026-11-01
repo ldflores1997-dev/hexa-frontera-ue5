@@ -22,6 +22,37 @@ El juego arranca con casillas y decoraciones generadas por código. La escena ya
 
 Todo eso está hecho con cubos, conos y esferas de un color. Para llegar al aspecto fotorrealista, cada casilla toma modelos y materiales de verdad desde su **carpeta de bioma** (sección 1). No hace falta tocar C++.
 
+## 0. Texturas y piezas del juego (ya aplicadas)
+
+El repo ya trae en `Content/Biomas` texturas fotográficas de [Poly Haven](https://polyhaven.com) (gratis, licencia CC0) y piezas modeladas en Blender:
+
+| Qué | De dónde sale | Dónde queda |
+|---|---|---|
+| Superficie de las 21 casillas | `Tools/unreal/texturas.json` | `Biomas/<mundo>/<terreno>/Superficie/MI_<terreno>` |
+| Mar, arena o pasto alrededor del tablero | `_entorno` en `texturas.json` | `Biomas/<mundo>/_Entorno/MI_Suelo` |
+| Marco del tablero (madera; metal en la Ciudad flotante) | `_juego` y `_entorno` | `Biomas/_Comun/MI_Madera_Marco`, `_Entorno/MI_Marco` |
+| Piezas de madera pintada, fichas de terciado, fieltro de la bandeja | `_juego` | `Biomas/_Comun/MI_*` |
+| Humo, vapor, polvo, tormenta y escarcha translúcidos | `M_Humo` | `Biomas/_Comun` |
+| Dado redondeado, ficha biselada, puesto, centro y ruta | `Tools/blender/piezas.py` | `Biomas/_Comun/Piezas` |
+
+Las cartas de recurso usan como ilustración la textura del terreno que produce ese recurso.
+
+**Relieve**: la tapa de cada casilla sube y baja según el mapa de altura de su textura (piedras que sobresalen, grietas que se hunden), con sombras reales. Cuántos cm se elige con `relief` en `texturas.json`, y se regenera con `python Tools/relieves.py` (necesita `pip install pillow`); queda en `Content/Relieves`. El borde y el lugar de la ficha quedan planos.
+
+**Para cambiar una textura**: elegí otra en polyhaven.com, poné su id en `Tools/unreal/texturas.json` y corré, con el editor cerrado:
+
+```bash
+"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" Unreal/HexaFrontera/HexaFrontera.uproject -run=pythonscript -script=Tools/unreal/aplicar_texturas.py -EnablePlugins=PythonScriptPlugin
+```
+
+**Para cambiar las piezas**: editá `Tools/blender/piezas.py`, corré `blender --background --python Tools/blender/piezas.py` y después el script de arriba. Un mundo puede tener piezas propias en `Biomas/<mundo>/_Piezas/SM_Puesto` (y `SM_Centro`, `SM_Ruta`, `SM_Ficha`); la ranura de material 1 es el techo, que se pinta más oscuro.
+
+**Para mirar el resultado sin jugar**: `-HFDemo=<mundo>` arranca una partida entre 4 bots, y `-HFShots=45,110` guarda capturas en `Saved/Screenshots` a esos segundos y cierra el juego:
+
+```bash
+"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" Unreal/HexaFrontera/HexaFrontera.uproject -game -HFDemo=andes_valles
+```
+
 ## 1. Biomas realistas: una carpeta por casilla
 
 El juego busca los recursos de cada terreno en:
@@ -59,6 +90,18 @@ Si preferís no mover los recursos, se pueden nombrar en `DefaultGame.ini`. Lo q
 ```ini
 +TerrainVisuals=(Scenario="andes_valles",Terrain="puna",Plants=("/Game/Fab/Megascans/3D/Pampas_Grass/SM_Pampas_Grass.SM_Pampas_Grass"),Fauna=("/Game/Fab/Llama/SM_Llama.SM_Llama"))
 ```
+
+### Los modelos de Fab no están en el repositorio
+
+La licencia de Fab no deja publicar sus modelos, y además pesan unos 6 GB. Por eso `Content/Fab` está en `.gitignore`: cada uno los agrega desde su propia biblioteca de Fab.
+
+1. Agregá a tu biblioteca los modelos que figuran en `Tools/unreal/modelos_fab.json`.
+2. Bajalos en formato glTF (*_ue_high.zip*) a `Saved/FabDescargas`.
+3. Con el editor cerrado, corré `Tools/unreal/importar_fab.py` y después `Tools/unreal/ordenar_fab.py`. El primero los importa igual que el botón *Añadir al proyecto* y el segundo los reparte en las casillas (escribe el bloque `TerrainVisuals` de `DefaultGame.ini`).
+
+Sin esos modelos el juego funciona igual: las casillas usan sus decoraciones de formas simples.
+
+Todo lo que se agrega a una casilla (plantas, rocas, pasto, relieve, animales que caminan, partículas) se achica o se corre lo necesario para que la pieza entera quede dentro del círculo que entra en el hexágono (`DecorationRadius`). Solo las aves y los dirigibles pueden pasar por encima de otras casillas.
 
 ### Qué buscar en Fab para cada casilla
 

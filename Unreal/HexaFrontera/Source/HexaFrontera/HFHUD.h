@@ -9,6 +9,7 @@ class AHFGameMode;
 class AHFPlayerController;
 class SWidget;
 class SWeakWidget;
+class UTexture;
 
 UCLASS()
 class HEXAFRONTERA_API AHFHUD : public AHUD
@@ -59,6 +60,14 @@ private:
 	float Now() const;
 	void DrawCard(int32 Resource, const FVector2D& Center, float Angle, float Scale, float Alpha, int32 Count);
 	void DrawPolygon(const FVector2D& Center, float Radius, int32 Sides, float Angle, const FLinearColor& Color);
+	// Ilustración de la carta: la textura de color del terreno que produce el recurso, o nullptr.
+	UTexture* ResourceArt(int32 Resource);
+
+	// Por recurso del mundo de CardArtScenario; se vacía al cambiar de mundo.
+	UPROPERTY()
+	TMap<int32, TObjectPtr<UTexture>> CardArt;
+	TMap<int32, float> CardArtRetry; // cuándo volver a buscar una ilustración que no apareció
+	FString CardArtScenario;
 	struct FScenarioInfo
 	{
 		FString Id;

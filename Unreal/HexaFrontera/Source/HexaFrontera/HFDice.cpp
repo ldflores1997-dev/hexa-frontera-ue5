@@ -3,6 +3,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "HFAssets.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -43,9 +44,14 @@ AHFDice::AHFDice()
 	ConeMesh = Cone.Object;
 }
 
-UMaterialInstanceDynamic* AHFDice::MakeMaterial(const FLinearColor& Color)
+UMaterialInstanceDynamic* AHFDice::MakeMaterial(const FLinearColor& Color, const TCHAR* Preferred)
 {
-	UMaterialInterface* Base = Cast<UMaterialInterface>(FSoftObjectPath(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")).TryLoad());
+	// El material de Biomas/_Comun si existe (resina, formas); si no, el del motor.
+	UMaterialInterface* Base = Preferred ? HFAssets::LoadIfExists<UMaterialInterface>(HFAssets::Common / Preferred) : nullptr;
+	if (!Base)
+	{
+		Base = Cast<UMaterialInterface>(FSoftObjectPath(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")).TryLoad());
+	}
 	if (!Base)
 	{
 		return nullptr;
@@ -56,7 +62,7 @@ UMaterialInstanceDynamic* AHFDice::MakeMaterial(const FLinearColor& Color)
 	return Material;
 }
 
-UStaticMeshComponent* AHFDice::AddPart(UStaticMesh* Mesh, USceneComponent* Parent, const FVector& Location, const FVector& Scale, UMaterialInstanceDynamic* Material)
+UStaticMeshComponent* AHFDice::AddPart(UStaticMesh* Mesh, USceneComponent* Parent, const FVector& Location, const FVector& Scale, UMaterialInterface* Material)
 {
 	UStaticMeshComponent* Part = NewObject<UStaticMeshComponent>(this);
 	Part->SetMobility(EComponentMobility::Movable);
@@ -74,8 +80,17 @@ UStaticMeshComponent* AHFDice::AddPart(UStaticMesh* Mesh, USceneComponent* Paren
 
 void AHFDice::BuildTray()
 {
-	UMaterialInstanceDynamic* Felt = MakeMaterial(FLinearColor(0.03f, 0.16f, 0.09f));
-	UMaterialInstanceDynamic* Wood = MakeMaterial(FLinearColor(0.32f, 0.17f, 0.07f));
+	// Fieltro verde y madera oscura con textura; sin texturas, los mismos colores lisos.
+	UMaterialInterface* Felt = HFAssets::LoadIfExists<UMaterialInterface>(HFAssets::Common / TEXT("MI_Fieltro"));
+	UMaterialInterface* Wood = HFAssets::LoadIfExists<UMaterialInterface>(HFAssets::Common / TEXT("MI_Madera_Marco"));
+	if (!Felt)
+	{
+		Felt = MakeMaterial(FLinearColor(0.03f, 0.16f, 0.09f));
+	}
+	if (!Wood)
+	{
+		Wood = MakeMaterial(FLinearColor(0.32f, 0.17f, 0.07f));
+	}
 	const float HalfX = TraySize.X * 0.5f;
 	const float HalfY = TraySize.Y * 0.5f;
 	const float Rim = 18.0f;
@@ -113,16 +128,26 @@ void AHFDice::SetFaces(const TArray<FHFDieFaceLook>& First, const TArray<FHFDieF
 
 UStaticMeshComponent* AHFDice::BuildDie(int32 Index)
 {
-	// El dado de terreno es de piedra clara y el de región de bronce, para distinguirlos.
-	UMaterialInstanceDynamic* Body = MakeMaterial(Index == 0 ? FLinearColor(0.82f, 0.80f, 0.74f) : FLinearColor(0.55f, 0.36f, 0.14f));
+	// El dado de terreno es de piedra clara y el de región de bronce, para distinguirlos; con resina pulida si existe.
+	UMaterialInstanceDynamic* Body = MakeMaterial(Index == 0 ? FLinearColor(0.82f, 0.80f, 0.74f) : FLinearColor(0.55f, 0.36f, 0.14f), TEXT("M_Resina"));
+	// El cubo del motor es el cuerpo físico (choca como una caja). Si existe el dado de Blender, con las
+	// aristas redondeadas, se ve ese y el cubo queda invisible.
 	UStaticMeshComponent* Die = AddPart(CubeMesh, Root, FVector::ZeroVector, FVector(DieSize / 100.0f), Body);
 	Die->SetCollisionProfileName(TEXT("PhysicsActor"));
 	Die->SetLinearDamping(0.25f);
 	Die->SetAngularDamping(0.35f);
 	Die->SetCastShadow(true);
+	UStaticMesh* Rounded = HFAssets::LoadIfExists<UStaticMesh>(HFAssets::Common / TEXT("Piezas/SM_Dado"));
+	if (Rounded)
+	{
+		Die->SetVisibility(false);
+		UStaticMeshComponent* Shell = AddPart(Rounded, Die, FVector::ZeroVector, FVector::OneVector, Body);
+		Shell->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
 
 	// Cada cara lleva un parche de color apenas sobresaliente (en el espacio local del cubo, que mide 100)
-	// y, si es evento o comodín, un símbolo encima.
+	// y, si es evento o comodín, un símbolo encima. En el dado redondeado el parche se achica para no
+	// salirse de la parte plana de la cara.
 	for (const FFace& Face : Faces)
 	{
 		FHFDieFaceLook Look;
@@ -131,8 +156,8 @@ UStaticMeshComponent* AHFDice::BuildDie(int32 Index)
 			Look = Looks[Index][Face.Value - 1];
 		}
 		const FVector Axis = Face.Normal.GetAbs();
-		const FVector PatchScale = FVector(0.78f) * (FVector::OneVector - Axis) + Axis * 0.03f;
-		UStaticMeshComponent* Patch = AddPart(CubeMesh, Die, Face.Normal * 50.0f, PatchScale, MakeMaterial(Look.Color));
+		const FVector PatchScale = FVector(Rounded ? 0.7f : 0.78f) * (FVector::OneVector - Axis) + Axis * 0.03f;
+		UStaticMeshComponent* Patch = AddPart(CubeMesh, Die, Face.Normal * 50.0f, PatchScale, MakeMaterial(Look.Color, TEXT("M_Forma")));
 		Patch->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		Patch->SetCastShadow(false);
 		if (Look.Symbol == FHFDieFaceLook::ESymbol::Terrain)
@@ -162,9 +187,9 @@ void AHFDice::Throw(const FVector& Location, float FacingYaw)
 		{
 			if (Die)
 			{
-				TArray<USceneComponent*> Children;
-				Die->GetChildrenComponents(true, Children);
-				for (USceneComponent* Child : Children)
+				TArray<USceneComponent*> Attached;
+				Die->GetChildrenComponents(true, Attached);
+				for (USceneComponent* Child : Attached)
 				{
 					Child->DestroyComponent();
 				}

@@ -5,11 +5,13 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/Texture2D.h"
 #include "GlobalRenderResources.h"
 #include "HFBoardActor.h"
 #include "HFGameMode.h"
 #include "HFMatch.h"
 #include "HFPlayerController.h"
+#include "Materials/MaterialInterface.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
@@ -117,7 +119,16 @@ void AHFHUD::BeginPlay()
 			UE_LOG(LogTemp, Warning, TEXT("%s"), *Error);
 		}
 	}
-	ShowMenu();
+	// Con -HFDemo la partida ya arrancó: se muestra el tablero de juego en vez del menú.
+	const AHFGameMode* Mode = GetHexGameMode();
+	if (Mode && Mode->IsInMatch())
+	{
+		ShowGame();
+	}
+	else
+	{
+		ShowMenu();
+	}
 }
 
 void AHFHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -1102,6 +1113,53 @@ void AHFHUD::DrawPolygon(const FVector2D& Center, float Radius, int32 Sides, flo
 	}
 }
 
+UTexture* AHFHUD::ResourceArt(int32 Resource)
+{
+	const AHFGameMode* M = GetHexGameMode();
+	AHFBoardActor* Board = M ? M->GetBoard() : nullptr;
+	if (!Board || !M->GetMatch())
+	{
+		return nullptr;
+	}
+	const hf::Scenario& Scenario = M->GetMatch()->GetScenario();
+	const FString ScenarioId = FHFMatch::ToFString(Scenario.id);
+	if (ScenarioId != CardArtScenario)
+	{
+		CardArt.Reset();
+		CardArtRetry.Reset();
+		CardArtScenario = ScenarioId;
+	}
+	if (const TObjectPtr<UTexture>* Found = CardArt.Find(Resource); Found && *Found)
+	{
+		return Found->Get();
+	}
+	// Al arrancar el juego el registro de recursos puede no estar listo: si no aparece, se reintenta cada 2 s.
+	float& Retry = CardArtRetry.FindOrAdd(Resource);
+	if (Now() < Retry)
+	{
+		return nullptr;
+	}
+	Retry = Now() + 2.0f;
+	UTexture* Art = nullptr;
+	for (const hf::TerrainDef& Terrain : Scenario.terrains)
+	{
+		if (Terrain.resource == Resource)
+		{
+			if (UMaterialInterface* Surface = Board->LoadSurface(FHFMatch::ToFString(Terrain.id)))
+			{
+				Surface->GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("ColorTex")), Art, true);
+			}
+			break;
+		}
+	}
+	if (UTexture2D* Texture = Cast<UTexture2D>(Art))
+	{
+		Texture->bForceMiplevelsToBeResident = true; // en pantalla no hay distancia: se quiere nítida
+	}
+	CardArt.Add(Resource, Art);
+	return Art;
+}
+
 void AHFHUD::DrawCard(int32 Resource, const FVector2D& Center, float Angle, float Scale, float Alpha, int32 Count)
 {
 	const AHFGameMode* M = GetHexGameMode();
@@ -1142,7 +1200,25 @@ void AHFHUD::DrawCard(int32 Resource, const FVector2D& Center, float Angle, floa
 	Tile(FVector2D(5, 7) * S, FVector2D(W, H), FLinearColor(0, 0, 0, 0.35f));                         // sombra
 	Tile(FVector2D::ZeroVector, FVector2D(W, H), FLinearColor(0.06f, 0.06f, 0.07f, 1.0f));               // borde
 	Tile(FVector2D::ZeroVector, FVector2D(W - 6 * S, H - 6 * S), Color * 0.45f + FLinearColor(0, 0, 0, 0.55f)); // fondo
-	Tile(FVector2D(0, -H * 0.2f), FVector2D(W - 6 * S, H * 0.6f - 3 * S), Color * 0.8f + FLinearColor(0, 0, 0, 0.2f));
+	const FVector2D ArtOffset(0, -H * 0.2f);
+	const FVector2D ArtSize(W - 6 * S, H * 0.6f - 3 * S);
+	if (UTexture* Art = ResourceArt(Resource))
+	{
+		// Un recorte cuadrado de la textura real del terreno, con su proporción.
+		FCanvasTileItem Item(Center + Rotate2D(ArtOffset, Angle) - ArtSize * 0.5f, Art->GetResource(), ArtSize, WithAlpha(FLinearColor::White, Alpha));
+		Item.UV0 = FVector2D(0.2f, 0.2f);
+		Item.UV1 = FVector2D(0.2f + 0.6f * ArtSize.X / ArtSize.Y, 0.8f);
+		Item.Rotation = FRotator(0.0f, Angle, 0.0f);
+		Item.PivotPoint = FVector2D(0.5f, 0.5f);
+		Item.BlendMode = SE_BLEND_Translucent;
+		Canvas->DrawItem(Item);
+		// Velo del color del recurso arriba, para que la carta se reconozca aunque dos texturas se parezcan.
+		Tile(ArtOffset - FVector2D(0, ArtSize.Y * 0.38f), FVector2D(ArtSize.X, ArtSize.Y * 0.24f), FLinearColor(Color.R, Color.G, Color.B, 0.75f));
+	}
+	else
+	{
+		Tile(ArtOffset, ArtSize, Color * 0.8f + FLinearColor(0, 0, 0, 0.2f));
+	}
 
 	// Emblema: un polígono distinto por recurso con la inicial encima.
 	const FVector2D Emblem = Center + Rotate2D(FVector2D(0, -H * 0.17f), Angle);

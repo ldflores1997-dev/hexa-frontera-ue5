@@ -80,6 +80,9 @@ public:
 	float GetBoardTopZ() const { return BoardTopZ; }
 	float GetBoardExtent() const { return BoardExtent; }
 
+	// Material de Superficie del terreno en el mundo actual (la carpeta de bioma o TerrainVisuals), o nullptr.
+	UMaterialInterface* LoadSurface(const FString& TerrainId) const;
+
 	// Devuelven -1 si no hay nada cerca del punto.
 	int32 FindNearestVertex(const FVector& WorldPoint, float MaxDistance) const;
 	int32 FindNearestEdge(const FVector& WorldPoint, float MaxDistance) const;
@@ -101,8 +104,9 @@ public:
 	float TileGap = 0.035f;
 
 	// Material base para casillas, piezas y decoraciones. Debe tener un parámetro de color (ColorParameter).
+	// Si no existe (no se corrió aplicar_texturas.py), se usa el material de formas del motor.
 	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera")
-	FSoftObjectPath BaseMaterial = FSoftObjectPath(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	FSoftObjectPath BaseMaterial = FSoftObjectPath(TEXT("/Game/Biomas/_Comun/M_Forma.M_Forma"));
 
 	UPROPERTY(EditAnywhere, Config, Category = "Hexa Frontera")
 	FName ColorParameter = TEXT("Color");
@@ -204,6 +208,7 @@ private:
 	struct FPuff
 	{
 		TWeakObjectPtr<UStaticMeshComponent> Component;
+		TWeakObjectPtr<UMaterialInstanceDynamic> Material; // translúcido, si existe M_Humo
 		FVector Location = FVector::ZeroVector;
 		FVector Velocity = FVector::ZeroVector;
 		float Born = 0.0f;
@@ -213,6 +218,7 @@ private:
 		FVector2D TileCenter = FVector2D::ZeroVector;
 		float Ceiling = 0.0f;
 		float Floor = 0.0f;
+		float Opacity = 0.5f;
 	};
 
 	// Superficie de agua con olas (se recalculan los vértices de la tapa en cada cuadro).
@@ -232,6 +238,18 @@ private:
 		TWeakObjectPtr<UPointLightComponent> Light;
 		float Intensity = 0.0f;
 		float Phase = 0.0f;
+	};
+
+	// Mapa de altura de la textura de un terreno (Content/Relieves, lo arma Tools/relieves.py).
+	struct FHeightField
+	{
+		int32 Size = 0;
+		float Tiling = 250.0f;   // cm por repetición, igual que la textura
+		float Amplitude = 0.0f;  // cm entre lo más bajo y lo más alto
+		TArray<uint16> Data;
+		bool IsValid() const { return Size > 1 && Amplitude > 0.0f && Data.Num() == Size * Size; }
+		// Altura en cm (entre -Amplitude/2 y +Amplitude/2) en un punto del tablero, alineada con la textura.
+		float Sample(const FVector2D& Point) const;
 	};
 
 	// Recursos de un bioma: lo que hay en <BiomeFolder>/<mundo>/<terreno>/ más lo que agrega TerrainVisuals.
@@ -308,6 +326,10 @@ private:
 	UPROPERTY()
 	TMap<FString, TObjectPtr<UMaterialInstanceDynamic>> MaterialCache;
 	UPROPERTY()
+	TMap<FString, TObjectPtr<UMaterialInstanceDynamic>> PaintedWoodCache;
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> SmokeMaterial;
+	UPROPERTY()
 	TArray<TObjectPtr<UPointLightComponent>> BuildingLights;
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> PuffPool;
@@ -318,6 +340,7 @@ private:
 	TArray<FFlash> Flashes;
 	TSet<int64> ShownPieces;
 	TArray<FMotion> Motions;
+	TArray<FMotion> StatusMotions; // las de tormentas, heladas y refuerzos, que se rehacen con cada estado
 	TArray<FEmitter> Emitters;
 	TArray<FPuff> Puffs;
 	TArray<FWater> Waters;
@@ -337,7 +360,16 @@ private:
 	float BoardTopZ = 0.0f;
 	float BoardExtent = 0.0f;
 
-	UMaterialInstanceDynamic* MaterialFor(const FLinearColor& Color);
+	UMaterialInstanceDynamic* MaterialFor(const FLinearColor& Color, float Glow = 0.0f);
+	// Madera pintada del color pedido (piezas de los jugadores); sin el material, el color liso de siempre.
+	UMaterialInterface* PaintedWood(const FLinearColor& Color);
+	// Translúcido y con brillo propio (humo, tormenta, escarcha, refuerzo); sin M_Humo, un color opaco.
+	UMaterialInterface* GlassMaterial(const FLinearColor& Color, float Opacity, float Glow);
+	// Malla de pieza del mundo actual (<BiomeFolder>/<mundo>/_Piezas/<Name>) o la común; nullptr si no hay.
+	UStaticMesh* PieceMesh(const TCHAR* Name) const;
+	UStaticMeshComponent* AddPiece(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FRotator& Rotation, const FLinearColor& Color);
+	void BuildFrame();
+	void TickMotion(FMotion& Motion, float Now, float DeltaSeconds, const FVector& SunFlat);
 	FBiomeAssets LoadBiome(const FString& TerrainId) const;
 	UStaticMeshComponent* AddAsset(UStaticMesh* Mesh, const FVector& Location, const FRotator& Rotation, float Scale);
 	// Escala que lleva la malla al alto pedido, y posición que apoya su base en Spot.
@@ -348,13 +380,18 @@ private:
 	void TickCreatures(float Now, float DeltaSeconds);
 	UStaticMeshComponent* AddShape(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color,
 		TArray<TObjectPtr<UStaticMeshComponent>>& OutComponents, const FRotator& Rotation = FRotator::ZeroRotator);
-	void BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, float Height, const FLinearColor& Color, UMaterialInterface* Override, bool bWater);
+	FHeightField LoadRelief(const FString& TerrainId) const;
+	// Relief: si es válido, la tapa se subdivide y sigue el mapa de altura de la textura.
+	void BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, float Height, const FLinearColor& Color, UMaterialInterface* Override, bool bWater,
+		const FHeightField* Relief);
 	void AddDecoration(int32 Tile, const FString& Decoration, const FString& TerrainId, const FLinearColor& TerrainColor);
 	void ClearComponents(TArray<TObjectPtr<UStaticMeshComponent>>& Components);
 	void AddMotion(UStaticMeshComponent* Component, EMotion Kind, const FVector& Pivot, float Amount, float Phase);
 	void AddEmitter(int32 Tile, const FVector& Origin, EPuff Kind, float Interval, float Spread, float Rise);
 	// Radio del círculo que entra en el hexágono de una casilla, con margen: nada decorativo pasa de ahí.
 	float DecorationRadius() const;
+	// Radio en planta de una malla a escala 1 (la mitad de la diagonal de su caja).
+	float MeshFootprint(const UStaticMesh* Mesh) const;
 	void SpawnPuff(const FEmitter& Emitter, float Now);
 	void TickLife(float Now, float DeltaSeconds);
 };

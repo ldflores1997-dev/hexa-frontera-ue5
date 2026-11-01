@@ -1,6 +1,7 @@
 ﻿#include "HFBoardActor.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "HFAssets.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -10,6 +11,8 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/RandomStream.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "ProceduralMeshComponent.h"
 #include "UObject/ConstructorHelpers.h"
@@ -21,6 +24,7 @@ const float PieceDropSeconds = 0.45f;
 const float FlashSeconds = 1.6f;
 const int32 MaxPuffs = 300;
 const int32 WaterSubdivisions = 7;
+const int32 ReliefSubdivisions = 28; // ~10 cm entre vértices en la tapa en relieve
 const float WaveAmplitude = 6.0f;
 const FVector2D WindDirection(0.8f, 0.6f);
 
@@ -64,26 +68,118 @@ AHFBoardActor::AHFBoardActor()
 	};
 }
 
-UMaterialInstanceDynamic* AHFBoardActor::MaterialFor(const FLinearColor& Color)
+UMaterialInstanceDynamic* AHFBoardActor::MaterialFor(const FLinearColor& Color, float Glow)
 {
 	if (!LoadedBaseMaterial)
 	{
-		LoadedBaseMaterial = Cast<UMaterialInterface>(BaseMaterial.TryLoad());
+		if (FPackageName::DoesPackageExist(BaseMaterial.GetLongPackageName()))
+		{
+			LoadedBaseMaterial = Cast<UMaterialInterface>(BaseMaterial.TryLoad());
+		}
+		if (!LoadedBaseMaterial)
+		{
+			LoadedBaseMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+		}
 		if (!LoadedBaseMaterial)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("No se pudo cargar el material base %s"), *BaseMaterial.ToString());
 			return nullptr;
 		}
 	}
-	const FString Key = Color.ToString();
+	const FString Key = Color.ToString() + FString::SanitizeFloat(Glow);
 	if (TObjectPtr<UMaterialInstanceDynamic>* Found = MaterialCache.Find(Key))
 	{
 		return Found->Get();
 	}
 	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(LoadedBaseMaterial, this);
 	Material->SetVectorParameterValue(ColorParameter, Color);
+	Material->SetScalarParameterValue(TEXT("Glow"), Glow);
 	MaterialCache.Add(Key, Material);
 	return Material;
+}
+
+UMaterialInterface* AHFBoardActor::PaintedWood(const FLinearColor& Color)
+{
+	const FString Key = Color.ToString();
+	if (TObjectPtr<UMaterialInstanceDynamic>* Found = PaintedWoodCache.Find(Key))
+	{
+		return Found->Get();
+	}
+	UMaterialInterface* Wood = HFAssets::LoadIfExists<UMaterialInterface>(HFAssets::Common / TEXT("MI_Madera_Pieza"));
+	if (!Wood)
+	{
+		return MaterialFor(Color);
+	}
+	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Wood, this);
+	Material->SetVectorParameterValue(TEXT("Color"), Color);
+	PaintedWoodCache.Add(Key, Material);
+	return Material;
+}
+
+UMaterialInterface* AHFBoardActor::GlassMaterial(const FLinearColor& Color, float Opacity, float Glow)
+{
+	if (!SmokeMaterial)
+	{
+		SmokeMaterial = HFAssets::LoadIfExists<UMaterialInterface>(HFAssets::Common / TEXT("M_Humo"));
+	}
+	if (!SmokeMaterial)
+	{
+		return MaterialFor(Color, Glow);
+	}
+	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(SmokeMaterial, this);
+	Material->SetVectorParameterValue(TEXT("Color"), Color);
+	Material->SetScalarParameterValue(TEXT("Opacity"), Opacity);
+	Material->SetScalarParameterValue(TEXT("Glow"), Glow);
+	return Material;
+}
+
+UStaticMesh* AHFBoardActor::PieceMesh(const TCHAR* Name) const
+{
+	if (UStaticMesh* Own = HFAssets::LoadIfExists<UStaticMesh>(BiomeFolder / ScenarioId / TEXT("_Piezas") / Name))
+	{
+		return Own;
+	}
+	return HFAssets::LoadIfExists<UStaticMesh>(HFAssets::Common / TEXT("Piezas") / Name);
+}
+
+UStaticMeshComponent* AHFBoardActor::AddPiece(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FRotator& Rotation, const FLinearColor& Color)
+{
+	// Ranura 0: cuerpo del color del jugador; ranura 1 (techos): el mismo color, más oscuro.
+	UStaticMeshComponent* Piece = AddShape(Mesh, Location, Scale, Color, PieceComponents, Rotation);
+	for (int32 Slot = 0; Slot < Piece->GetNumMaterials(); ++Slot)
+	{
+		Piece->SetMaterial(Slot, PaintedWood(Slot == 0 ? Color : Shade(Color, 0.6f)));
+	}
+	return Piece;
+}
+
+UMaterialInterface* AHFBoardActor::LoadSurface(const FString& TerrainId) const
+{
+	// Lo que se configura en DefaultGame.ini manda sobre la carpeta.
+	for (const FHFTerrainVisual& Visual : TerrainVisuals)
+	{
+		if (Visual.Scenario == ScenarioId && Visual.Terrain == TerrainId && !Visual.Material.IsNull())
+		{
+			return Visual.Material.LoadSynchronous();
+		}
+	}
+	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	TArray<FAssetData> Assets;
+	Registry.GetAssetsByPath(FName(*(BiomeFolder / ScenarioId / TerrainId / TEXT("Superficie"))), Assets, true);
+	Assets.Sort([](const FAssetData& A, const FAssetData& B) { return A.AssetName.LexicalLess(B.AssetName); });
+	// La superficie suele traer el material y su instancia: se prefiere la instancia, que es la que se ajusta.
+	UMaterialInterface* Surface = nullptr;
+	for (const FAssetData& Asset : Assets)
+	{
+		if (Asset.IsInstanceOf(UMaterialInterface::StaticClass()) && (!Surface || Asset.IsInstanceOf(UMaterialInstance::StaticClass())))
+		{
+			if (UMaterialInterface* Material = Cast<UMaterialInterface>(Asset.GetAsset()))
+			{
+				Surface = Material;
+			}
+		}
+	}
+	return Surface;
 }
 
 AHFBoardActor::FBiomeAssets AHFBoardActor::LoadBiome(const FString& TerrainId) const
@@ -119,14 +215,7 @@ AHFBoardActor::FBiomeAssets AHFBoardActor::LoadBiome(const FString& TerrainId) c
 		}
 	};
 
-	// La superficie suele traer el material y su instancia: se prefiere la instancia, que es la que se ajusta.
-	for (UObject* Object : Find(TEXT("Superficie"), UMaterialInterface::StaticClass()))
-	{
-		if (!Biome.Material || Object->IsA<UMaterialInstance>())
-		{
-			Biome.Material = CastChecked<UMaterialInterface>(Object);
-		}
-	}
+	Biome.Material = LoadSurface(TerrainId);
 	TArray<UStaticMesh*> Tiles;
 	TArray<UStaticMesh*> Landmarks;
 	Meshes(TEXT("Casilla"), Tiles);
@@ -155,10 +244,6 @@ AHFBoardActor::FBiomeAssets AHFBoardActor::LoadBiome(const FString& TerrainId) c
 		if (Visual.Scenario != ScenarioId || Visual.Terrain != TerrainId)
 		{
 			continue;
-		}
-		if (!Visual.Material.IsNull())
-		{
-			Biome.Material = Visual.Material.LoadSynchronous();
 		}
 		if (!Visual.Mesh.IsNull())
 		{
@@ -203,6 +288,13 @@ FVector AHFBoardActor::GroundedLocation(const UStaticMesh* Mesh, const FVector& 
 	const FBoxSphereBounds Bounds = Mesh->GetBounds();
 	const FVector Bottom(Bounds.Origin.X, Bounds.Origin.Y, Bounds.Origin.Z - Bounds.BoxExtent.Z);
 	return Spot - Rotation.RotateVector(Bottom * Scale);
+}
+
+float AHFBoardActor::MeshFootprint(const UStaticMesh* Mesh) const
+{
+	// Radio en planta a escala 1, girada como sea: GroundedLocation centra la caja sobre el punto.
+	const FVector Extent = Mesh->GetBounds().BoxExtent;
+	return static_cast<float>(FVector2D(Extent.X, Extent.Y).Size());
 }
 
 UStaticMeshComponent* AHFBoardActor::AddShape(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color,
@@ -308,6 +400,7 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 	}
 
 	TMap<int32, FBiomeAssets> Biomes; // por terreno, para buscar los recursos una sola vez
+	TMap<int32, FHeightField> Reliefs;
 	for (int32 T = 0; T < TileCenters.Num(); ++T)
 	{
 		const hf::Tile& Tile = Tiles[static_cast<size_t>(T)];
@@ -347,7 +440,11 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		else
 		{
 			const FString Decoration = FHFMatch::ToFString(Terrain.decoration);
-			BuildTileMesh(T, Corners, TileHeights[T], Color, Biome.Material, Decoration == TEXT("coral"));
+			if (!Reliefs.Contains(Tile.terrain))
+			{
+				Reliefs.Add(Tile.terrain, LoadRelief(TerrainId));
+			}
+			BuildTileMesh(T, Corners, TileHeights[T], Color, Biome.Material, Decoration == TEXT("coral"), &Reliefs[Tile.terrain]);
 		}
 		const int32 FirstShape = TileComponents.Num();
 		const int32 FirstMotion = Motions.Num();
@@ -380,11 +477,159 @@ void AHFBoardActor::Rebuild(const FHFMatch& Match)
 		VertexHeights[V] = Height;
 	}
 
+	BuildFrame();
 	RefreshPieces(Match);
 	RefreshStatuses(Match);
 }
 
-void AHFBoardActor::BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, float Height, const FLinearColor& Color, UMaterialInterface* Override, bool bWater)
+void AHFBoardActor::BuildFrame()
+{
+	// Marco hexagonal debajo de las casillas: las sostiene y tapa las juntas de abajo.
+	// Se prueban las dos orientaciones posibles y se usa la que deja el marco más chico.
+	float BestRadius = TNumericLimits<float>::Max();
+	float BestAngle = 0.0f;
+	for (const float Angle : {0.0f, 30.0f})
+	{
+		float Inradius = 0.0f;
+		for (int32 K = 0; K < 6; ++K)
+		{
+			const float NormalAngle = FMath::DegreesToRadians(Angle + 30.0f + 60.0f * K);
+			const FVector2D Normal(FMath::Cos(NormalAngle), FMath::Sin(NormalAngle));
+			for (const FVector2D& Vertex : VertexPositions)
+			{
+				Inradius = FMath::Max(Inradius, static_cast<float>(FVector2D::DotProduct(Vertex, Normal)));
+			}
+		}
+		const float Radius = Inradius / FMath::Cos(FMath::DegreesToRadians(30.0f));
+		if (Radius < BestRadius)
+		{
+			BestRadius = Radius;
+			BestAngle = Angle;
+		}
+	}
+	const float Outer = BestRadius + TileRadius * 0.18f;
+	const float Top = TileBaseHeight * 0.5f;
+	const float Bottom = -60.0f;
+	const float Bevel = 12.0f;
+
+	TArray<FVector> Positions;
+	TArray<int32> Triangles;
+	TArray<FVector> Normals;
+	TArray<FVector2D> UVs;
+	TArray<FProcMeshTangent> Tangents;
+	const float UVSize = 300.0f; // cm por repetición de la veta
+	auto AddVertex = [&](const FVector& P, const FVector& N, const FVector2D& UV)
+	{
+		Positions.Add(P);
+		Normals.Add(N);
+		UVs.Add(UV / UVSize);
+		Tangents.Add(FProcMeshTangent(FVector::CrossProduct(N, FVector::UpVector).GetSafeNormal(1e-4f, FVector::ForwardVector), false));
+		return Positions.Num() - 1;
+	};
+	auto AddTriangle = [&](int32 A, int32 B, int32 C, const FVector& Facing)
+	{
+		bool bSwap = FVector::DotProduct(FVector::CrossProduct(Positions[B] - Positions[C], Positions[A] - Positions[C]), Facing) < 0.0f;
+		if (bFlipWinding)
+		{
+			bSwap = !bSwap;
+		}
+		Triangles.Append({A, bSwap ? C : B, bSwap ? B : C});
+	};
+	TArray<FVector2D> Corners;
+	for (int32 K = 0; K < 6; ++K)
+	{
+		const float A = FMath::DegreesToRadians(BestAngle + 60.0f * K);
+		Corners.Add(FVector2D(FMath::Cos(A), FMath::Sin(A)));
+	}
+	const int32 Center = AddVertex(FVector(0, 0, Top), FVector::UpVector, FVector2D::ZeroVector);
+	for (int32 K = 0; K < 6; ++K)
+	{
+		const FVector2D A = Corners[K];
+		const FVector2D B = Corners[(K + 1) % 6];
+		const FVector Out(((A + B) * 0.5f).GetSafeNormal(), 0.0f);
+		const FVector BevelNormal = (Out + FVector::UpVector).GetSafeNormal();
+		const float EdgeLength = static_cast<float>(FVector2D::Distance(A, B)) * Outer;
+		// Tapa
+		const int32 TA = AddVertex(FVector(A * (Outer - Bevel), Top), FVector::UpVector, A * (Outer - Bevel));
+		const int32 TB = AddVertex(FVector(B * (Outer - Bevel), Top), FVector::UpVector, B * (Outer - Bevel));
+		AddTriangle(Center, TA, TB, FVector::UpVector);
+		// Bisel
+		const int32 B0 = AddVertex(FVector(A * (Outer - Bevel), Top), BevelNormal, FVector2D(0, 0));
+		const int32 B1 = AddVertex(FVector(B * (Outer - Bevel), Top), BevelNormal, FVector2D(EdgeLength, 0));
+		const int32 B2 = AddVertex(FVector(B * Outer, Top - Bevel), BevelNormal, FVector2D(EdgeLength, Bevel));
+		const int32 B3 = AddVertex(FVector(A * Outer, Top - Bevel), BevelNormal, FVector2D(0, Bevel));
+		AddTriangle(B0, B1, B2, BevelNormal);
+		AddTriangle(B0, B2, B3, BevelNormal);
+		// Costado
+		const int32 S0 = AddVertex(FVector(A * Outer, Top - Bevel), Out, FVector2D(0, Bevel));
+		const int32 S1 = AddVertex(FVector(B * Outer, Top - Bevel), Out, FVector2D(EdgeLength, Bevel));
+		const int32 S2 = AddVertex(FVector(B * Outer, Bottom), Out, FVector2D(EdgeLength, Top - Bottom));
+		const int32 S3 = AddVertex(FVector(A * Outer, Bottom), Out, FVector2D(0, Top - Bottom));
+		AddTriangle(S0, S1, S2, Out);
+		AddTriangle(S0, S2, S3, Out);
+	}
+
+	UProceduralMeshComponent* Frame = NewObject<UProceduralMeshComponent>(this);
+	Frame->SetupAttachment(Root);
+	Frame->RegisterComponent();
+	Frame->CreateMeshSection_LinearColor(0, Positions, Triangles, Normals, UVs, TArray<FLinearColor>(), Tangents, false);
+	// Cada mundo puede tener su propio marco (la Ciudad flotante es de metal); si no, madera oscura.
+	UMaterialInterface* Material = HFAssets::LoadIfExists<UMaterialInterface>(BiomeFolder / ScenarioId / TEXT("_Entorno/MI_Marco"));
+	if (!Material)
+	{
+		Material = HFAssets::LoadIfExists<UMaterialInterface>(HFAssets::Common / TEXT("MI_Madera_Marco"));
+	}
+	Frame->SetMaterial(0, Material ? Material : MaterialFor(FLinearColor(0.12f, 0.06f, 0.025f)));
+	TileMeshes.Add(Frame);
+}
+
+float AHFBoardActor::FHeightField::Sample(const FVector2D& Point) const
+{
+	// Misma proyección que el material de casilla: X e Y del tablero divididos por la repetición, filas hacia +Y.
+	const float U = static_cast<float>(Point.X) / Tiling * Size;
+	const float V = static_cast<float>(Point.Y) / Tiling * Size;
+	const int32 X0 = FMath::FloorToInt(U);
+	const int32 Y0 = FMath::FloorToInt(V);
+	auto At = [this](int32 X, int32 Y)
+	{
+		X = ((X % Size) + Size) % Size;
+		Y = ((Y % Size) + Size) % Size;
+		return Data[Y * Size + X] / 65535.0f;
+	};
+	const float FX = U - X0;
+	const float FY = V - Y0;
+	const float Top = FMath::Lerp(At(X0, Y0), At(X0 + 1, Y0), FX);
+	const float Bottom = FMath::Lerp(At(X0, Y0 + 1), At(X0 + 1, Y0 + 1), FX);
+	return (FMath::Lerp(Top, Bottom, FY) - 0.5f) * Amplitude;
+}
+
+AHFBoardActor::FHeightField AHFBoardActor::LoadRelief(const FString& TerrainId) const
+{
+	FHeightField Relief;
+	TArray<uint8> Bytes;
+	const FString Path = FPaths::ProjectContentDir() / TEXT("Relieves") / ScenarioId / (TerrainId + TEXT(".r16"));
+	if (!FPaths::FileExists(Path) || !FFileHelper::LoadFileToArray(Bytes, *Path) || Bytes.Num() < 16 || FMemory::Memcmp(Bytes.GetData(), "HFR1", 4) != 0)
+	{
+		return Relief;
+	}
+	// Encabezado: "HFR1", tamaño (uint32), cm por repetición, cm de relieve; después las alturas uint16.
+	uint32 Size = 0;
+	FMemory::Memcpy(&Size, Bytes.GetData() + 4, 4);
+	FMemory::Memcpy(&Relief.Tiling, Bytes.GetData() + 8, 4);
+	FMemory::Memcpy(&Relief.Amplitude, Bytes.GetData() + 12, 4);
+	if (Size < 2 || Size > 4096 || Bytes.Num() != 16 + static_cast<int64>(Size) * Size * 2 || Relief.Tiling <= 0.0f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Relieve inválido: %s"), *Path);
+		return FHeightField();
+	}
+	Relief.Size = static_cast<int32>(Size);
+	Relief.Data.SetNumUninitialized(Relief.Size * Relief.Size);
+	FMemory::Memcpy(Relief.Data.GetData(), Bytes.GetData() + 16, Relief.Data.Num() * sizeof(uint16));
+	return Relief;
+}
+
+void AHFBoardActor::BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, float Height, const FLinearColor& Color, UMaterialInterface* Override, bool bWater,
+	const FHeightField* Relief)
 {
 	TArray<FVector> Positions;
 	TArray<int32> Triangles;
@@ -422,7 +667,49 @@ void AHFBoardActor::BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, 
 	};
 
 	// Tapa superior (el agua la arma aparte, con más vértices para las olas)
-	if (!bWater)
+	if (!bWater && Relief && Relief->IsValid())
+	{
+		// Tapa en relieve: cada uno de los 6 sectores se subdivide y los vértices siguen el mapa de altura de la
+		// textura, así las piedras sobresalen y las grietas se hunden de verdad. En el borde queda plana para
+		// calzar con el bisel.
+		const FVector2D Origin = TileCenters[Tile];
+		auto HeightAt = [&](const FVector2D& Local, float Radial)
+		{
+			return Relief->Sample(Origin + Local) * (1.0f - FMath::Pow(Radial, 4.0f));
+		};
+		const int32 N = ReliefSubdivisions;
+		const float Step = 3.0f; // cm para medir la pendiente
+		for (int32 C = 0; C < 6; ++C)
+		{
+			const FVector2D A = Corners[C] * Inset;
+			const FVector2D B = Corners[(C + 1) % 6] * Inset;
+			TArray<int32> RowStart;
+			for (int32 I = 0; I <= N; ++I)
+			{
+				RowStart.Add(Positions.Num());
+				for (int32 J = 0; J <= N - I; ++J)
+				{
+					const FVector2D P = A * (static_cast<float>(I) / N) + B * (static_cast<float>(J) / N);
+					const float Radial = static_cast<float>(I + J) / N; // 0 en el centro, 1 en el borde
+					const float DX = (HeightAt(P + FVector2D(Step, 0), Radial) - HeightAt(P - FVector2D(Step, 0), Radial)) / (2.0f * Step);
+					const float DY = (HeightAt(P + FVector2D(0, Step), Radial) - HeightAt(P - FVector2D(0, Step), Radial)) / (2.0f * Step);
+					AddVertex(FVector(P, Height + HeightAt(P, Radial)), FVector(-DX, -DY, 1.0f).GetSafeNormal(), Color);
+				}
+			}
+			for (int32 I = 0; I < N; ++I)
+			{
+				for (int32 J = 0; J < N - I; ++J)
+				{
+					AddTriangle(RowStart[I] + J, RowStart[I + 1] + J, RowStart[I] + J + 1, FVector::UpVector);
+					if (J < N - I - 1)
+					{
+						AddTriangle(RowStart[I + 1] + J, RowStart[I + 1] + J + 1, RowStart[I] + J + 1, FVector::UpVector);
+					}
+				}
+			}
+		}
+	}
+	else if (!bWater)
 	{
 		const int32 CenterIndex = AddVertex(FVector(0, 0, Height), FVector::UpVector, Color);
 		TArray<int32> TopRing;
@@ -534,7 +821,27 @@ void AHFBoardActor::BuildTileMesh(int32 Tile, const TArray<FVector2D>& Corners, 
 
 	for (int32 Section = 0; Section < Mesh->GetNumSections(); ++Section)
 	{
-		if (Override)
+		// La superficie del bioma va en la casilla; la tapa de agua usa el material de ondas, con el color del terreno.
+		if (bWater && Section == 1)
+		{
+			if (UMaterialInterface* Water = HFAssets::LoadIfExists<UMaterialInterface>(HFAssets::Common / TEXT("M_Agua")))
+			{
+				UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Water, this);
+				Material->SetVectorParameterValue(TEXT("Color"), Color);
+				if (UMaterialInterface* Ground = HFAssets::LoadIfExists<UMaterialInterface>(BiomeFolder / ScenarioId / TEXT("_Entorno/MI_Suelo")))
+				{
+					// Las mismas ondas que el mar de alrededor.
+					UTexture* Waves = nullptr;
+					if (Ground->GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("NormalTex")), Waves) && Waves)
+					{
+						Material->SetTextureParameterValue(TEXT("NormalTex"), Waves);
+					}
+				}
+				Mesh->SetMaterial(Section, Material);
+				continue;
+			}
+		}
+		if (Override && !(bWater && Section == 1))
 		{
 			Mesh->SetMaterial(Section, Override);
 		}
@@ -790,21 +1097,27 @@ void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome)
 {
 	FRandomStream Random(static_cast<int32>(Tile * 104729 + static_cast<int32>(GetTypeHash(ScenarioId) & 0x7FFFFF)));
 	const FVector Base(TileCenters[Tile], TileHeights[Tile]);
-	const float Spread = TileRadius * 0.6f;
+	const float Spread = DecorationRadius();
 	auto Pick = [&](const TArray<UStaticMesh*>& From) { return From[Random.RandRange(0, From.Num() - 1)]; };
-	auto RandomPoint = [&](float Reach)
+	// Lugar al azar para una pieza de radio Footprint (cm): toda la pieza queda dentro de la casilla.
+	auto RandomPoint = [&](float Footprint)
 	{
 		const float Angle = Random.FRandRange(0.0f, 2.0f * UE_PI);
-		const float Distance = FMath::Sqrt(Random.FRand()) * Spread * Reach;
+		const float Distance = FMath::Sqrt(Random.FRand()) * FMath::Max(0.0f, Spread - Footprint);
 		return Base + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0f);
+	};
+	// Escala que no deja que la pieza ocupe más que Share del radio útil (las muy anchas se achican).
+	auto Shrink = [&](const UStaticMesh* Mesh, float Scale, float Share)
+	{
+		return FMath::Min(Scale, Spread * Share / FMath::Max(1.0f, MeshFootprint(Mesh)));
 	};
 	// Lugares ocupados (centro y radio), para que rocas, plantas y relieve no queden encimados.
 	TArray<TPair<FVector2D, float>> Taken;
-	auto FreeSpot = [&](float Clearance, FVector& OutSpot)
+	auto FreeSpot = [&](float Clearance, float Footprint, FVector& OutSpot)
 	{
 		for (int32 Try = 0; Try < 10; ++Try)
 		{
-			const FVector Spot = RandomPoint(1.0f);
+			const FVector Spot = RandomPoint(Footprint);
 			bool bFree = true;
 			for (const TPair<FVector2D, float>& Used : Taken)
 			{
@@ -823,23 +1136,21 @@ void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome)
 	if (Biome.Landmark)
 	{
 		// El relieve (volcán, nevado, domo) ocupa el centro y se achica si no entra en la casilla.
-		const FVector Extent = Biome.Landmark->GetBounds().BoxExtent;
-		const float Footprint = FMath::Max(1.0f, static_cast<float>(FMath::Max(Extent.X, Extent.Y)));
-		const float Scale = FMath::Min(FitScale(Biome.Landmark, LandmarkHeight), TileRadius * 0.8f / Footprint);
+		const float Scale = Shrink(Biome.Landmark, FitScale(Biome.Landmark, LandmarkHeight), 1.0f);
 		const FRotator Rotation(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f);
 		AddAsset(Biome.Landmark, GroundedLocation(Biome.Landmark, Base, Rotation, Scale), Rotation, Scale);
-		Taken.Add({FVector2D(Base), Footprint * Scale * 0.8f});
+		Taken.Add({FVector2D(Base), MeshFootprint(Biome.Landmark) * Scale * 0.7f});
 	}
 
 	for (int32 I = 0; Biome.Rocks.Num() && I < RocksPerTile; ++I)
 	{
+		UStaticMesh* Mesh = Pick(Biome.Rocks);
+		const float Scale = Shrink(Mesh, FitScale(Mesh, RockHeight) * Random.FRandRange(0.6f, 1.4f), 0.35f);
 		FVector Spot;
-		if (!FreeSpot(RockHeight * 0.8f, Spot))
+		if (!FreeSpot(RockHeight * 0.8f, MeshFootprint(Mesh) * Scale, Spot))
 		{
 			continue;
 		}
-		UStaticMesh* Mesh = Pick(Biome.Rocks);
-		const float Scale = FitScale(Mesh, RockHeight) * Random.FRandRange(0.6f, 1.4f);
 		// Inclinadas y un poco hundidas, para que parezcan asentadas y no apoyadas.
 		const FRotator Rotation(Random.FRandRange(-8.0f, 8.0f), Random.FRandRange(0.0f, 360.0f), Random.FRandRange(-8.0f, 8.0f));
 		const float Sink = 0.15f * 2.0f * static_cast<float>(Mesh->GetBounds().BoxExtent.Z) * Scale;
@@ -848,13 +1159,15 @@ void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome)
 
 	for (int32 I = 0; Biome.Plants.Num() && I < PlantsPerTile; ++I)
 	{
+		UStaticMesh* Mesh = Pick(Biome.Plants);
+		const float Scale = Shrink(Mesh, FitScale(Mesh, PlantHeight) * Random.FRandRange(0.75f, 1.25f), 0.45f);
 		FVector Spot;
-		if (!FreeSpot(PlantHeight * 0.3f, Spot))
+		// Se suma lo que la copa se corre al mecerse (1.5° de vaivén sobre el alto de la planta).
+		const float Footprint = MeshFootprint(Mesh) * Scale + 0.03f * PlantHeight;
+		if (!FreeSpot(PlantHeight * 0.3f, Footprint, Spot))
 		{
 			continue;
 		}
-		UStaticMesh* Mesh = Pick(Biome.Plants);
-		const float Scale = FitScale(Mesh, PlantHeight) * Random.FRandRange(0.75f, 1.25f);
 		const FRotator Rotation(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f);
 		UStaticMeshComponent* Plant = AddAsset(Mesh, GroundedLocation(Mesh, Spot, Rotation, Scale), Rotation, Scale);
 		// Vaivén suave desde la base; el material de la planta suele sumar su propio viento en las hojas.
@@ -869,13 +1182,14 @@ void AHFBoardActor::AddBiomeAssets(int32 Tile, const FBiomeAssets& Biome)
 		Cover->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		Cover->SetupAttachment(Root);
 		Cover->RegisterComponent();
-		const float Fit = FitScale(Mesh, GroundCoverHeight);
+		const float Fit = Shrink(Mesh, FitScale(Mesh, GroundCoverHeight), 0.2f / 1.3f);
 		const int32 Count = FMath::Max(1, GroundCoverPerTile / Biome.GroundCover.Num());
 		for (int32 I = 0; I < Count; ++I)
 		{
 			const FRotator Rotation(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f);
 			const float Scale = Fit * Random.FRandRange(0.7f, 1.3f);
-			Cover->AddInstance(FTransform(Rotation, GroundedLocation(Mesh, RandomPoint(1.15f), Rotation, Scale), FVector(Scale)));
+			const FVector Spot = RandomPoint(MeshFootprint(Mesh) * Scale);
+			Cover->AddInstance(FTransform(Rotation, GroundedLocation(Mesh, Spot, Rotation, Scale), FVector(Scale)));
 		}
 		GroundCoverComponents.Add(Cover);
 	}
@@ -917,6 +1231,10 @@ void AHFBoardActor::AddCreature(ECreature Kind, const FVector& Center, float Rad
 		const FQuat Facing = FRotator(0.0f, FaunaYawOffset, 0.0f).Quaternion();
 		// Los que caminan se apoyan por la base; las aves se centran en su cuerpo.
 		const FVector Pivot(Bounds.Origin.X, Bounds.Origin.Y, Kind == ECreature::Walker ? Bounds.Origin.Z - Bounds.BoxExtent.Z : Bounds.Origin.Z);
+		if (Kind == ECreature::Walker)
+		{
+			Creature.Radius = FMath::Max(0.0f, Radius - MeshFootprint(Mesh) * Scale); // el cuerpo entero no pasa del borde
+		}
 		UStaticMeshComponent* Component = AddAsset(Mesh, Center, Facing.Rotator(), Scale);
 		Creature.Parts.Add({Component, EPart::Fixed, -Facing.RotateVector(Pivot * Scale), Facing});
 	}
@@ -1077,8 +1395,14 @@ void AHFBoardActor::SpawnPuff(const FEmitter& Emitter, float Now)
 		TArray<TObjectPtr<UStaticMeshComponent>> Created;
 		Component = AddShape(SphereMesh, FVector::ZeroVector, FVector(0.01f), FLinearColor::White, Created);
 		Component->SetCastShadow(false);
+		// Cada partícula lleva su propio material translúcido, para desvanecerla sin tocar las demás.
+		if (UMaterialInstanceDynamic* Glass = Cast<UMaterialInstanceDynamic>(GlassMaterial(FLinearColor::White, 0.0f, 0.0f)))
+		{
+			Component->SetMaterial(0, Glass);
+		}
 		PuffPool.Add(Component);
 	}
+	UMaterialInstanceDynamic* Glass = SmokeMaterial ? Cast<UMaterialInstanceDynamic>(Component->GetMaterial(0)) : nullptr;
 
 	const float Angle = FMath::FRandRange(0.0f, 2.0f * UE_PI);
 	const float Distance = FMath::Sqrt(FMath::FRand()) * Emitter.Spread;
@@ -1135,7 +1459,25 @@ void AHFBoardActor::SpawnPuff(const FEmitter& Emitter, float Now)
 		Puff.EndScale = 0.0f; // crece y se apaga (ver TickLife)
 		break;
 	}
-	if (UMaterialInstanceDynamic* Material = MaterialFor(Color))
+	if (Glass)
+	{
+		// Translúcidas: el humo y el vapor se disuelven; las chispas y los destellos brillan solos.
+		float Glow = 0.0f;
+		switch (Emitter.Kind)
+		{
+		case EPuff::Smoke: Puff.Opacity = 0.55f; break;
+		case EPuff::Steam: Puff.Opacity = 0.4f; Glow = 0.15f; break;
+		case EPuff::Dust:  Puff.Opacity = 0.35f; break;
+		case EPuff::Snow:  Puff.Opacity = 0.9f; Glow = 0.3f; break;
+		case EPuff::Ember: Puff.Opacity = 1.0f; Glow = 12.0f; break;
+		case EPuff::Glint: Puff.Opacity = 1.0f; Glow = 20.0f; break;
+		}
+		Glass->SetVectorParameterValue(TEXT("Color"), Color);
+		Glass->SetScalarParameterValue(TEXT("Glow"), Glow);
+		Glass->SetScalarParameterValue(TEXT("Opacity"), 0.0f);
+		Puff.Material = Glass;
+	}
+	else if (UMaterialInstanceDynamic* Material = MaterialFor(Color))
 	{
 		Component->SetMaterial(0, Material);
 	}
@@ -1145,55 +1487,64 @@ void AHFBoardActor::SpawnPuff(const FEmitter& Emitter, float Now)
 	Puffs.Add(Puff);
 }
 
+void AHFBoardActor::TickMotion(FMotion& Motion, float Now, float DeltaSeconds, const FVector& SunFlat)
+{
+	UStaticMeshComponent* Component = Motion.Component.Get();
+	if (!Component)
+	{
+		return;
+	}
+	const float T = Now + Motion.Phase;
+	switch (Motion.Kind)
+	{
+	case EMotion::Sway:
+	{
+		// Ráfagas: una onda lenta que sube y baja la intensidad del vaivén.
+		const float Gust = 0.65f + 0.35f * FMath::Sin(Now * 0.35f + Motion.Phase * 0.5f);
+		const float Angle = Motion.Amount * Gust * (FMath::Sin(T * 2.1f) + 0.3f * FMath::Sin(T * 5.3f));
+		const FQuat Tilt(FVector(-WindDirection.Y, WindDirection.X, 0.0f), FMath::DegreesToRadians(Angle));
+		Component->SetRelativeLocationAndRotation(Motion.Pivot + Tilt.RotateVector(Motion.Offset), Tilt * Motion.Rotation);
+		break;
+	}
+	case EMotion::Spin:
+	{
+		const FQuat Turn(Motion.Rotation.GetUpVector(), FMath::DegreesToRadians(Motion.Amount * Now));
+		Component->SetRelativeRotation(Turn * Motion.Rotation);
+		break;
+	}
+	case EMotion::Flutter:
+	{
+		const float Angle = Motion.Amount * (FMath::Sin(T * 3.4f) + 0.5f * FMath::Sin(T * 7.9f));
+		const FQuat Wave(FVector::UpVector, FMath::DegreesToRadians(Angle));
+		Component->SetRelativeLocationAndRotation(Motion.Pivot + Wave.RotateVector(Motion.Offset), Wave * Motion.Rotation);
+		break;
+	}
+	case EMotion::Twinkle:
+		Component->SetRelativeScale3D(Motion.Scale * (1.0f + Motion.Amount * FMath::Sin(T * 2.6f)));
+		break;
+	case EMotion::TrackSun:
+	{
+		// El panel apunta al sol; de noche se acuesta mirando al cielo.
+		const FVector Target = FMath::Lerp(SunFlat, FVector::UpVector, Night).GetSafeNormal();
+		const FQuat Wanted = FRotationMatrix::MakeFromZ(Target).ToQuat();
+		const FQuat Current = Component->GetRelativeRotation().Quaternion();
+		Component->SetRelativeRotation(FQuat::Slerp(Current, Wanted, FMath::Clamp(DeltaSeconds * 0.8f, 0.0f, 1.0f)));
+		break;
+	}
+	}
+}
+
 void AHFBoardActor::TickLife(float Now, float DeltaSeconds)
 {
 	// Decoraciones que se mueven.
 	const FVector SunFlat = FVector(SunDirection.X, SunDirection.Y, FMath::Max(static_cast<float>(SunDirection.Z), 0.26f)).GetSafeNormal();
 	for (FMotion& Motion : Motions)
 	{
-		UStaticMeshComponent* Component = Motion.Component.Get();
-		if (!Component)
-		{
-			continue;
-		}
-		const float T = Now + Motion.Phase;
-		switch (Motion.Kind)
-		{
-		case EMotion::Sway:
-		{
-			// Ráfagas: una onda lenta que sube y baja la intensidad del vaivén.
-			const float Gust = 0.65f + 0.35f * FMath::Sin(Now * 0.35f + Motion.Phase * 0.5f);
-			const float Angle = Motion.Amount * Gust * (FMath::Sin(T * 2.1f) + 0.3f * FMath::Sin(T * 5.3f));
-			const FQuat Tilt(FVector(-WindDirection.Y, WindDirection.X, 0.0f), FMath::DegreesToRadians(Angle));
-			Component->SetRelativeLocationAndRotation(Motion.Pivot + Tilt.RotateVector(Motion.Offset), Tilt * Motion.Rotation);
-			break;
-		}
-		case EMotion::Spin:
-		{
-			const FQuat Turn(Motion.Rotation.GetUpVector(), FMath::DegreesToRadians(Motion.Amount * Now));
-			Component->SetRelativeRotation(Turn * Motion.Rotation);
-			break;
-		}
-		case EMotion::Flutter:
-		{
-			const float Angle = Motion.Amount * (FMath::Sin(T * 3.4f) + 0.5f * FMath::Sin(T * 7.9f));
-			const FQuat Wave(FVector::UpVector, FMath::DegreesToRadians(Angle));
-			Component->SetRelativeLocationAndRotation(Motion.Pivot + Wave.RotateVector(Motion.Offset), Wave * Motion.Rotation);
-			break;
-		}
-		case EMotion::Twinkle:
-			Component->SetRelativeScale3D(Motion.Scale * (1.0f + Motion.Amount * FMath::Sin(T * 2.6f)));
-			break;
-		case EMotion::TrackSun:
-		{
-			// El panel apunta al sol; de noche se acuesta mirando al cielo.
-			const FVector Target = FMath::Lerp(SunFlat, FVector::UpVector, Night).GetSafeNormal();
-			const FQuat Wanted = FRotationMatrix::MakeFromZ(Target).ToQuat();
-			const FQuat Current = Component->GetRelativeRotation().Quaternion();
-			Component->SetRelativeRotation(FQuat::Slerp(Current, Wanted, FMath::Clamp(DeltaSeconds * 0.8f, 0.0f, 1.0f)));
-			break;
-		}
-		}
+		TickMotion(Motion, Now, DeltaSeconds, SunFlat);
+	}
+	for (FMotion& Motion : StatusMotions)
+	{
+		TickMotion(Motion, Now, DeltaSeconds, SunFlat);
 	}
 
 	TickCreatures(Now, DeltaSeconds);
@@ -1253,8 +1604,17 @@ void AHFBoardActor::TickLife(float Now, float DeltaSeconds)
 			Puff.Velocity.Z = 0.0f;
 			Puff.Life = FMath::Min(Puff.Life, (Now - Puff.Born) + 0.25f);
 		}
-		// Al final se achican hasta desaparecer (los materiales son opacos: no se pueden desvanecer).
-		float Scale = FMath::Lerp(Puff.StartScale, Puff.EndScale, Alpha) * FMath::Min(1.0f, (1.0f - Alpha) * 4.0f);
+		float Scale = FMath::Lerp(Puff.StartScale, Puff.EndScale, Alpha);
+		if (UMaterialInstanceDynamic* Glass = Puff.Material.Get())
+		{
+			// Aparecen enseguida y se disuelven de a poco mientras crecen.
+			Glass->SetScalarParameterValue(TEXT("Opacity"), Puff.Opacity * FMath::Min(1.0f, Alpha * 6.0f) * FMath::Pow(1.0f - Alpha, 1.5f));
+		}
+		else
+		{
+			// Con material opaco no se pueden desvanecer: al final se achican hasta desaparecer.
+			Scale *= FMath::Min(1.0f, (1.0f - Alpha) * 4.0f);
+		}
 		if (Puff.StartScale == 0.0f && Puff.EndScale == 0.0f)
 		{
 			Scale = 0.07f * FMath::Sin(Alpha * UE_PI); // destello
@@ -1348,6 +1708,11 @@ void AHFBoardActor::RefreshPieces(const FHFMatch& Match)
 		}
 	};
 
+	// Piezas de Blender (o del mundo, en _Piezas) en madera pintada; si no están, las formas básicas.
+	UStaticMesh* RouteMesh = PieceMesh(TEXT("SM_Ruta"));
+	UStaticMesh* OutpostMesh = PieceMesh(TEXT("SM_Puesto"));
+	UStaticMesh* CenterMesh = PieceMesh(TEXT("SM_Centro"));
+
 	const auto& Routes = Game.RouteOwners();
 	for (int32 E = 0; E < static_cast<int32>(Routes.size()); ++E)
 	{
@@ -1362,7 +1727,9 @@ void AHFBoardActor::RefreshPieces(const FHFMatch& Match)
 		const float Length = FVector::Dist2D(A, B) * 0.62f;
 		const FRotator Rotation = (B - A).GetSafeNormal2D().Rotation();
 		const FLinearColor Color = PlayerColors[RouteOwner % PlayerColors.Num()];
-		UStaticMeshComponent* Plank = AddShape(CubeMesh, Mid, FVector(Length / 100.0f, 0.22f, 0.18f), Color, PieceComponents, Rotation);
+		UStaticMeshComponent* Plank = RouteMesh
+			? AddPiece(RouteMesh, Mid, FVector(Length / 100.0f, 1.0f, 1.0f), Rotation, Color)
+			: AddShape(CubeMesh, Mid, FVector(Length / 100.0f, 0.22f, 0.18f), Color, PieceComponents, Rotation);
 		Animate({Plank}, PieceKey(1, E, 0));
 	}
 
@@ -1378,7 +1745,13 @@ void AHFBoardActor::RefreshPieces(const FHFMatch& Match)
 		const FLinearColor Color = PlayerColors[Building.owner % PlayerColors.Num()];
 		const FLinearColor Roof = Shade(Color, 0.6f);
 		TArray<UStaticMeshComponent*> Parts;
-		if (Building.level == 1)
+		// Cada construcción mira para un lado distinto, siempre el mismo para el mismo vértice.
+		const FRotator Facing(0.0f, static_cast<float>((V * 137) % 360), 0.0f);
+		if (UStaticMesh* Mesh = Building.level == 1 ? OutpostMesh : CenterMesh)
+		{
+			Parts.Add(AddPiece(Mesh, P, FVector::OneVector, Facing, Color));
+		}
+		else if (Building.level == 1)
 		{
 			Parts.Add(AddShape(CubeMesh, P + FVector(0, 0, 30), FVector(0.55f, 0.55f, 0.6f), Color, PieceComponents));
 			Parts.Add(AddShape(ConeMesh, P + FVector(0, 0, 80), FVector(0.7f, 0.7f, 0.45f), Roof, PieceComponents, FRotator(0, 45, 0)));
@@ -1409,9 +1782,22 @@ void AHFBoardActor::RefreshPieces(const FHFMatch& Match)
 void AHFBoardActor::RefreshStatuses(const FHFMatch& Match)
 {
 	ClearComponents(StatusComponents);
+	StatusMotions.Reset();
 	const hf::Game& Game = Match.GetGame();
 	const auto& Tiles = Game.GetBoard().Tiles();
 	bool bTerrainChanged = false;
+	auto StatusMotion = [&](UStaticMeshComponent* Component, EMotion Kind, float Amount, float Phase)
+	{
+		AddMotion(Component, Kind, Component->GetRelativeLocation(), Amount, Phase);
+		StatusMotions.Add(Motions.Pop());
+	};
+	auto Glass = [&](UStaticMesh* Mesh, const FVector& Location, const FVector& Scale, const FLinearColor& Color, float Opacity, float Glow)
+	{
+		UStaticMeshComponent* Component = AddShape(Mesh, Location, Scale, Color, StatusComponents);
+		Component->SetMaterial(0, GlassMaterial(Color, Opacity, Glow));
+		Component->SetCastShadow(false);
+		return Component;
+	};
 	for (int32 T = 0; T < static_cast<int32>(Tiles.size()); ++T)
 	{
 		const hf::Tile& Tile = Tiles[static_cast<size_t>(T)];
@@ -1420,17 +1806,41 @@ void AHFBoardActor::RefreshStatuses(const FHFMatch& Match)
 			bTerrainChanged = true;
 		}
 		const FVector Top = TileWorld(T);
+		FRandomStream Random(T * 31 + 7);
 		if (Tile.blockedRounds > 0)
 		{
-			AddShape(SphereMesh, Top + FVector(0, 0, 120), FVector(6.0f, 6.0f, 1.6f), FLinearColor(0.55f, 0.32f, 0.18f), StatusComponents);
+			// Tormenta de polvo: nubes translúcidas apiladas que respiran a destiempo.
+			for (int32 I = 0; I < 6; ++I)
+			{
+				const float Angle = I * UE_PI / 3.0f + Random.FRandRange(-0.3f, 0.3f);
+				const float S = Random.FRandRange(2.0f, 2.8f);
+				const float Reach = FMath::Min(TileRadius * 0.35f, DecorationRadius() - 50.0f * S); // la nube entera queda sobre la casilla
+				const FVector Offset(FMath::Cos(Angle) * Reach, FMath::Sin(Angle) * Reach, Random.FRandRange(70.0f, 170.0f));
+				UStaticMeshComponent* Cloud = Glass(SphereMesh, Top + Offset, FVector(S, S, S * 0.6f), FLinearColor(0.55f, 0.32f, 0.18f), 0.3f, 0.0f);
+				StatusMotion(Cloud, EMotion::Twinkle, 0.08f, Random.FRandRange(0.0f, 6.0f));
+			}
 		}
 		if (Tile.frostRounds > 0)
 		{
-			AddShape(CylinderMesh, Top + FVector(0, 0, 4), FVector(6.2f, 6.2f, 0.06f), FLinearColor(0.85f, 0.95f, 1.0f), StatusComponents);
+			// Helada: una capa de escarcha y cristales de hielo que destellan.
+			Glass(CylinderMesh, Top + FVector(0, 0, 3), FVector(6.2f, 6.2f, 0.04f), FLinearColor(0.82f, 0.92f, 1.0f), 0.5f, 0.15f);
+			for (int32 I = 0; I < 8; ++I)
+			{
+				const float Angle = Random.FRandRange(0.0f, 2.0f * UE_PI);
+				const float Distance = Random.FRandRange(0.2f, 0.65f) * TileRadius;
+				const float S = Random.FRandRange(0.5f, 0.9f);
+				UStaticMeshComponent* Crystal = AddShape(ConeMesh, Top + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 22 * S),
+					FVector(0.12f, 0.12f, 0.45f) * S, FLinearColor(0.75f, 0.9f, 1.0f), StatusComponents,
+					FRotator(Random.FRandRange(-20.0f, 20.0f), Random.FRandRange(0.0f, 360.0f), 0.0f));
+				Crystal->SetMaterial(0, MaterialFor(FLinearColor(0.75f, 0.9f, 1.0f), 0.6f));
+				StatusMotion(Crystal, EMotion::Twinkle, 0.12f, Random.FRandRange(0.0f, 6.0f));
+			}
 		}
 		if (Game.BoostedTile() == T)
 		{
-			AddShape(CylinderMesh, Top + FVector(0, 0, 8), FVector(2.0f, 2.0f, 0.12f), FLinearColor(1.0f, 0.8f, 0.1f), StatusComponents);
+			// Refuerzo: un anillo dorado que late en el centro de la casilla.
+			UStaticMeshComponent* Ring = Glass(CylinderMesh, Top + FVector(0, 0, 6), FVector(2.4f, 2.4f, 0.03f), FLinearColor(1.0f, 0.75f, 0.15f), 0.55f, 3.0f);
+			StatusMotion(Ring, EMotion::Twinkle, 0.06f, 0.0f);
 		}
 	}
 	if (bTerrainChanged)

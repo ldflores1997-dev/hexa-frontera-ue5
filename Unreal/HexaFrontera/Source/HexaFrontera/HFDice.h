@@ -1,4 +1,4 @@
-// Dos dados de terreno con física que se tiran sobre una bandeja junto al tablero.
+﻿// Dos dados de terreno con física que se tiran sobre una bandeja junto al tablero.
 // Cada cara muestra un terreno (su color), el evento del mundo o un comodín. Cuando se quedan
 // quietos avisan qué cara (1-6) quedó arriba; la partida traduce esa cara con los dados del escenario.
 #pragma once
@@ -10,6 +10,7 @@
 class UStaticMesh;
 class UStaticMeshComponent;
 class UMaterialInstanceDynamic;
+class UMaterialInterface;
 
 DECLARE_DELEGATE_TwoParams(FHFOnDiceSettled, int32 /*First*/, int32 /*Second*/);
 
@@ -82,8 +83,9 @@ private:
 	TArray<FHFDieFaceLook> Looks[2];
 	bool bLooksChanged = false;
 
-	UMaterialInstanceDynamic* MakeMaterial(const FLinearColor& Color);
-	UStaticMeshComponent* AddPart(UStaticMesh* Mesh, USceneComponent* Parent, const FVector& Location, const FVector& Scale, UMaterialInstanceDynamic* Material);
+	// Preferred: nombre de un material de Biomas/_Comun con parámetro Color (M_Resina, M_Forma).
+	UMaterialInstanceDynamic* MakeMaterial(const FLinearColor& Color, const TCHAR* Preferred = nullptr);
+	UStaticMeshComponent* AddPart(UStaticMesh* Mesh, USceneComponent* Parent, const FVector& Location, const FVector& Scale, UMaterialInterface* Material);
 	void BuildTray();
 	UStaticMeshComponent* BuildDie(int32 Index);
 	static int32 TopFace(const UStaticMeshComponent* Die, float& OutAlignment);

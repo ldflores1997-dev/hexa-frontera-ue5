@@ -7,6 +7,9 @@ Unreal/HexaFrontera/.vs/
 Unreal/HexaFrontera/*.sln
 Unreal/HexaFrontera/*.slnx
 Unreal/HexaFrontera/.vsconfig
+# Modelos de Fab/Megascans: su licencia no permite publicarlos. Se rearman con Tools/unreal/importar_fab.py.
+Unreal/HexaFrontera/Content/Fab/
+Unreal/HexaFrontera/Content/Megascans/
 *.VC.db
 *.opensdf
 *.sdf

@@ -9,6 +9,9 @@
 #include "HFHUD.h"
 #include "HFPlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Paths.h"
+#include "UnrealClient.h"
 
 AHFGameMode::AHFGameMode()
 {
@@ -46,6 +49,37 @@ void AHFGameMode::BeginPlay()
 	}
 
 	const TArray<FString> Ids = FHFMatch::ListScenarioIds();
+	// -HFDemo=<mundo> arranca directo una partida entre 4 bots: sirve para mirar el tablero con piezas, dados y cartas.
+	FString Demo;
+	FString Shots;
+	if (FParse::Value(FCommandLine::Get(), TEXT("HFShots="), Shots, false)) // false: la coma no corta el valor
+	{
+		TArray<FString> Seconds;
+		Shots.ParseIntoArray(Seconds, TEXT(","));
+		for (const FString& Second : Seconds)
+		{
+			DemoShots.Add(FCString::Atof(*Second));
+		}
+		DemoShots.Sort();
+	}
+	if (FParse::Value(FCommandLine::Get(), TEXT("HFDemo="), Demo) && Ids.Contains(Demo))
+	{
+		DemoName = Demo;
+		FHFMatchConfig Config;
+		Config.ScenarioId = Demo;
+		Config.Seed = FMath::RandRange(1, 1000000);
+		for (int32 I = 0; I < 4; ++I)
+		{
+			Config.PlayerNames.Add(FString::Printf(TEXT("Bot %d"), I + 1));
+			Config.Bots.Add(true);
+		}
+		FString Error;
+		if (BeginHexMatch(Config, Error))
+		{
+			return;
+		}
+		AddMessage(Error);
+	}
 	if (Ids.Num() > 0)
 	{
 		PreviewScenario(Ids[0], 2);
@@ -312,6 +346,18 @@ void AHFGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	Board->SetDayState(Environment->GetSunDirection(), Environment->GetNightAmount());
+	// -HFShots=60,120: capturas en Saved/Screenshots a esos segundos y cierre del juego después de la última.
+	const float Clock = static_cast<float>(GetWorld()->GetTimeSeconds());
+	if (DemoShots.Num() > 0 && Clock >= DemoShots[0])
+	{
+		FScreenshotRequest::RequestScreenshot(FPaths::ScreenShotDir() / FString::Printf(TEXT("%s_%03d.png"), *DemoName, FMath::RoundToInt(DemoShots[0])), true, false);
+		DemoShots.RemoveAt(0);
+		DemoQuitTime = DemoShots.Num() == 0 ? Clock + 3.0f : 0.0f;
+	}
+	if (DemoQuitTime > 0.0f && Clock >= DemoQuitTime)
+	{
+		FPlatformMisc::RequestExit(false);
+	}
 	if (!IsInMatch())
 	{
 		return;

@@ -1,0 +1,44 @@
+{
+  "_comentario": "Textura de Poly Haven (id de polyhaven.com/a/<id>) para cada terreno. tint multiplica el color; emissive suma brillo; tiling es cuántos cm mide una repetición; relief es cuántos cm sube y baja la superficie según el mapa de altura (0 = plana).",
+  "_juego": {
+    "madera_pieza": "white_maple_veneer",
+    "madera_ficha": "plywood",
+    "madera_marco": "walnut_veneer",
+    "fieltro": "velour_velvet"
+  },
+  "_entorno": {
+    "islas_volcanicas": {"agua": "coast_sand_01"},
+    "colonia_marte": {"id": "red_sand", "tiling": 500},
+    "andes_valles": {"id": "grass_ground", "tiling": 500},
+    "ciudad_flotante": {"marco": "metal_plate_02"}
+  },
+  "islas_volcanicas": {
+    "campo_obsidiana": {"id": "dark_rock_02", "relief": 16},
+    "arrecife": {"id": "coast_sand_01", "relief": 4},
+    "palmar": {"id": "forest_leaves_02", "relief": 6},
+    "fumarola": {"id": "worn_rock_natural_01", "tint": [1.1, 1.0, 0.65], "relief": 12},
+    "crater": {"id": "rock_face_03", "tint": [0.7, 0.45, 0.4], "relief": 18}
+  },
+  "colonia_marte": {
+    "casquete": {"id": "snow_02", "tint": [0.85, 0.85, 0.88], "relief": 6},
+    "regolito": {"id": "red_laterite_soil_stones", "relief": 12},
+    "campo_solar": {"id": "red_sand", "relief": 4},
+    "planta_oxigeno": {"id": "red_sand", "tint": [0.85, 0.8, 0.8], "relief": 4},
+    "crater": {"id": "moon_meteor_01", "tint": [1.0, 0.55, 0.4], "relief": 14}
+  },
+  "andes_valles": {
+    "mina": {"id": "rock_face", "relief": 18},
+    "puna": {"id": "withered_grass", "relief": 5},
+    "vinedo": {"id": "farm_soil", "relief": 6},
+    "valle": {"id": "grass_ground", "relief": 5},
+    "salar": {"id": "mud_cracked_dry_riverbed_002", "tint": [1.6, 1.58, 1.52], "relief": 5},
+    "nevado": {"id": "snow_03", "relief": 8}
+  },
+  "ciudad_flotante": {
+    "caldera": {"id": "rusty_metal_02", "relief": 2},
+    "fundicion": {"id": "metal_plate_02", "tint": [1.1, 0.85, 0.5], "relief": 2},
+    "carbonera": {"id": "burned_ground_01", "relief": 8},
+    "telar": {"id": "old_wooden_floor_01", "relief": 3},
+    "nucleo": {"id": "blue_metal_plate", "emissive": [0.05, 0.6, 0.8], "relief": 2}
+  }
+}

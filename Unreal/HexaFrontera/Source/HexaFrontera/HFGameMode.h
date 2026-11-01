@@ -78,6 +78,10 @@ private:
 	TArray<FString> Messages;
 	FString LastError;
 	float LastErrorTime = -100.0f;
+	// Modo demo (-HFDemo, -HFShots): segundos de las capturas pendientes y cuándo cerrar el juego.
+	FString DemoName = TEXT("menu");
+	TArray<float> DemoShots;
+	float DemoQuitTime = 0.0f;
 
 	void HandleEvents(const std::vector<hf::GameEvent>& Events);
 	void ShowWorld();
