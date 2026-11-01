@@ -413,11 +413,12 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 {
 	FRandomStream Random(static_cast<int32>(Tile * 7919 + static_cast<int32>(GetTypeHash(ScenarioId) & 0x7FFFFF)));
 	const FVector Base(TileCenters[Tile], TileHeights[Tile]);
-	const float Spread = TileRadius * 0.55f;
-	auto RandomSpot = [&]()
+	const float Spread = DecorationRadius();
+	// Lugar al azar dentro de la casilla para una pieza de radio Footprint (cm): toda la pieza queda adentro.
+	auto RandomSpot = [&](float Footprint)
 	{
 		const float Angle = Random.FRandRange(0.0f, 2.0f * UE_PI);
-		const float Distance = FMath::Sqrt(Random.FRand()) * Spread;
+		const float Distance = FMath::Sqrt(Random.FRand()) * FMath::Max(0.0f, Spread - Footprint);
 		return Base + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0f);
 	};
 	auto Spin = [&]() { return FRotator(0.0f, Random.FRandRange(0.0f, 360.0f), 0.0f); };
@@ -429,8 +430,8 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 	{
 		for (int32 I = 0; I < 7; ++I)
 		{
-			const FVector P = RandomSpot();
 			const float S = Random.FRandRange(0.7f, 1.2f);
+			const FVector P = RandomSpot(30.0f * S + 8.0f); // copa: 27 cm de radio por escala, más el vaivén
 			AddShape(CylinderMesh, P + FVector(0, 0, 30 * S), FVector(0.12f, 0.12f, 0.6f) * S, FLinearColor(0.25f, 0.14f, 0.06f), TileComponents);
 			UStaticMeshComponent* Crown = AddShape(ConeMesh, P + FVector(0, 0, 95 * S), FVector(0.55f, 0.55f, 0.9f) * S, Shade(TerrainColor, 0.7f), TileComponents);
 			AddMotion(Crown, EMotion::Sway, P + FVector(0, 0, 50 * S), 4.0f, WindPhase(P));
@@ -443,15 +444,15 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		for (int32 I = 0; I < Count; ++I)
 		{
 			const float S = Random.FRandRange(0.3f, 0.8f);
-			AddShape(SphereMesh, RandomSpot() + FVector(0, 0, 10 * S), FVector(S, S * 0.8f, S * 0.5f), Shade(TerrainColor, Random.FRandRange(0.6f, 1.1f)), TileComponents, Spin());
+			AddShape(SphereMesh, RandomSpot(50.0f * S) + FVector(0, 0, 10 * S), FVector(S, S * 0.8f, S * 0.5f), Shade(TerrainColor, Random.FRandRange(0.6f, 1.1f)), TileComponents, Spin());
 		}
 		if (bCrater)
 		{
-			AddEmitter(Base + FVector(0, 0, 10), EPuff::Dust, 0.35f, Spread * 0.7f); // remolinos de polvo
+			AddEmitter(Tile, Base + FVector(0, 0, 10), EPuff::Dust, 0.35f, Spread * 0.7f, 60.0f); // remolinos de polvo
 		}
 		else if (TerrainId == TEXT("campo_obsidiana"))
 		{
-			AddEmitter(Base + FVector(0, 0, 15), EPuff::Ember, 0.9f, Spread * 0.8f); // la lava todavía humea
+			AddEmitter(Tile, Base + FVector(0, 0, 15), EPuff::Ember, 0.9f, Spread * 0.8f, 120.0f); // la lava todavía humea
 		}
 	}
 	else if (Decoration == TEXT("crystals"))
@@ -459,23 +460,24 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		for (int32 I = 0; I < 6; ++I)
 		{
 			const float S = Random.FRandRange(0.5f, 1.1f);
-			UStaticMeshComponent* Crystal = AddShape(ConeMesh, RandomSpot() + FVector(0, 0, 50 * S), FVector(0.18f, 0.18f, 1.0f) * S, Shade(TerrainColor, 1.4f), TileComponents,
+			UStaticMeshComponent* Crystal = AddShape(ConeMesh, RandomSpot(35.0f * S) + FVector(0, 0, 50 * S), FVector(0.18f, 0.18f, 1.0f) * S, Shade(TerrainColor, 1.4f), TileComponents,
 				FRotator(Random.FRandRange(-15.0f, 15.0f), Random.FRandRange(0.0f, 360.0f), 0.0f));
 			AddMotion(Crystal, EMotion::Twinkle, Crystal->GetRelativeLocation(), 0.07f, Random.FRandRange(0.0f, 6.0f));
 		}
 		if (TerrainId == TEXT("fumarola"))
 		{
-			AddEmitter(Base + FVector(0, 0, 10), EPuff::Steam, 0.3f, Spread * 0.7f);
+			AddEmitter(Tile, Base + FVector(0, 0, 10), EPuff::Steam, 0.3f, Spread * 0.7f, 150.0f);
 		}
 		else
 		{
-			AddEmitter(Base + FVector(0, 0, 40), EPuff::Glint, 0.25f, Spread * 0.8f);
+			AddEmitter(Tile, Base + FVector(0, 0, 40), EPuff::Glint, 0.25f, Spread * 0.8f, 0.0f);
 		}
 	}
 	else if (Decoration == TEXT("volcano") || Decoration == TEXT("mountain"))
 	{
 		const bool bVolcano = Decoration == TEXT("volcano");
-		AddShape(ConeMesh, Base + FVector(0, 0, 110), FVector(4.2f, 4.2f, 2.2f), Shade(TerrainColor, 0.8f), TileComponents);
+		const float ConeScale = FMath::Min(4.2f, Spread * 2.0f / 100.0f); // la base del cono entra en la casilla
+		AddShape(ConeMesh, Base + FVector(0, 0, 110), FVector(ConeScale, ConeScale, 2.2f), Shade(TerrainColor, 0.8f), TileComponents);
 		UStaticMeshComponent* Peak = AddShape(ConeMesh, Base + FVector(0, 0, 200), FVector(1.6f, 1.6f, 0.8f),
 			bVolcano ? FLinearColor(1.0f, 0.25f, 0.02f) : FLinearColor(0.97f, 0.98f, 1.0f), TileComponents);
 		if (bVolcano)
@@ -487,16 +489,16 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 			Glow->SetRelativeLocation(Base + FVector(0, 0, 280));
 			Glow->SetLightColor(FLinearColor(1.0f, 0.35f, 0.05f));
 			Glow->SetIntensity(20000.0f);
-			Glow->SetAttenuationRadius(900.0f);
+			Glow->SetAttenuationRadius(TileRadius * 1.1f); // ilumina su casilla, no medio tablero
 			Glow->RegisterComponent();
 			DecorationLights.Add(Glow);
 			Glows.Add({Glow, 20000.0f, static_cast<float>(Random.FRandRange(0.0f, 6.0f))});
-			AddEmitter(Base + FVector(0, 0, 250), EPuff::Smoke, 0.28f, 25.0f);
-			AddEmitter(Base + FVector(0, 0, 245), EPuff::Ember, 0.08f, 30.0f);
+			AddEmitter(Tile, Base + FVector(0, 0, 250), EPuff::Smoke, 0.28f, 25.0f, 180.0f);
+			AddEmitter(Tile, Base + FVector(0, 0, 245), EPuff::Ember, 0.08f, 30.0f, 140.0f);
 		}
 		else
 		{
-			AddEmitter(Base + FVector(0, 0, 520), EPuff::Snow, 0.12f, Spread * 1.1f);
+			AddEmitter(Tile, Base + FVector(0, 0, 330), EPuff::Snow, 0.12f, Spread * 0.9f, 0.0f); // nieva sobre la montaña, no sobre el tablero
 		}
 	}
 	else if (Decoration == TEXT("coral"))
@@ -505,7 +507,7 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		{
 			const float S = Random.FRandRange(0.2f, 0.45f);
 			const FLinearColor Coral = I % 2 == 0 ? FLinearColor(0.95f, 0.35f, 0.3f) : FLinearColor(0.95f, 0.65f, 0.75f);
-			const FVector P = RandomSpot();
+			const FVector P = RandomSpot(70.0f * S + 6.0f); // incluye el alto de la esfera cuando se inclina
 			UStaticMeshComponent* Polyp = AddShape(SphereMesh, P + FVector(0, 0, 8), FVector(S, S, S * 1.4f), Coral, TileComponents);
 			AddMotion(Polyp, EMotion::Sway, P - FVector(0, 0, 20), 6.0f, WindPhase(P)); // se mece con la corriente
 		}
@@ -514,7 +516,7 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 	{
 		for (int32 I = 0; I < 6; ++I)
 		{
-			UStaticMeshComponent* Panel = AddShape(CubeMesh, RandomSpot() + FVector(0, 0, 25), FVector(0.9f, 0.6f, 0.04f), FLinearColor(0.05f, 0.08f, 0.2f), TileComponents,
+			UStaticMeshComponent* Panel = AddShape(CubeMesh, RandomSpot(54.0f) + FVector(0, 0, 25), FVector(0.9f, 0.6f, 0.04f), FLinearColor(0.05f, 0.08f, 0.2f), TileComponents,
 				FRotator(25.0f, 30.0f, 0.0f));
 			AddMotion(Panel, EMotion::TrackSun, Panel->GetRelativeLocation(), 1.0f, 0.0f);
 		}
@@ -524,7 +526,7 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		for (int32 I = 0; I < 3; ++I)
 		{
 			const float S = Random.FRandRange(0.9f, 1.4f);
-			UStaticMeshComponent* Dome = AddShape(SphereMesh, RandomSpot(), FVector(S, S, S * 0.8f), FLinearColor(0.85f, 0.9f, 0.92f), TileComponents);
+			UStaticMeshComponent* Dome = AddShape(SphereMesh, RandomSpot(52.0f * S), FVector(S, S, S * 0.8f), FLinearColor(0.85f, 0.9f, 0.92f), TileComponents);
 			AddMotion(Dome, EMotion::Twinkle, Dome->GetRelativeLocation(), 0.025f, Random.FRandRange(0.0f, 6.0f)); // respiran despacio
 		}
 	}
@@ -534,7 +536,7 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		for (int32 I = 0; I < 14; ++I)
 		{
 			const float S = Random.FRandRange(0.25f, 0.45f);
-			const FVector P = RandomSpot();
+			const FVector P = RandomSpot(25.0f * S + 6.0f);
 			UStaticMeshComponent* Blade = AddShape(bCrops ? CylinderMesh : ConeMesh, P + FVector(0, 0, 25 * S), FVector(0.12f, 0.12f, 0.5f) * S * 2.0f,
 				bCrops ? FLinearColor(0.9f, 0.75f, 0.2f) : Shade(TerrainColor, 1.2f), TileComponents);
 			AddMotion(Blade, EMotion::Sway, P, bCrops ? 9.0f : 12.0f, WindPhase(P));
@@ -544,8 +546,11 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 	{
 		for (int32 Row = -2; Row <= 2; ++Row)
 		{
-			const FVector P = Base + FVector(Row * 55.0f, 0, 22);
-			UStaticMeshComponent* Vine = AddShape(CubeMesh, P, FVector(0.12f, 3.6f, 0.45f), FLinearColor(0.25f, 0.4f, 0.12f), TileComponents);
+			// Cada hilera se recorta para que entre en la casilla.
+			const float X = Row * 55.0f;
+			const float HalfLength = FMath::Sqrt(FMath::Max(0.0f, Spread * Spread - X * X)) - 10.0f;
+			const FVector P = Base + FVector(X, 0, 22);
+			UStaticMeshComponent* Vine = AddShape(CubeMesh, P, FVector(0.12f, FMath::Max(0.2f, HalfLength / 50.0f), 0.45f), FLinearColor(0.25f, 0.4f, 0.12f), TileComponents);
 			AddMotion(Vine, EMotion::Sway, P - FVector(0, 0, 22), 3.0f, WindPhase(P));
 		}
 	}
@@ -553,19 +558,21 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 	{
 		for (int32 I = 0; I < 7; ++I)
 		{
-			AddShape(CubeMesh, RandomSpot() + FVector(0, 0, 4), FVector(Random.FRandRange(0.4f, 0.9f), Random.FRandRange(0.4f, 0.9f), 0.08f),
+			const float SX = Random.FRandRange(0.4f, 0.9f);
+			const float SY = Random.FRandRange(0.4f, 0.9f);
+			AddShape(CubeMesh, RandomSpot(50.0f * FMath::Sqrt(SX * SX + SY * SY)) + FVector(0, 0, 4), FVector(SX, SY, 0.08f),
 				FLinearColor(0.97f, 0.97f, 0.95f), TileComponents, Spin());
 		}
-		AddEmitter(Base + FVector(0, 0, 14), EPuff::Glint, 0.15f, Spread); // el salar reluce
+		AddEmitter(Tile, Base + FVector(0, 0, 14), EPuff::Glint, 0.15f, Spread, 0.0f); // el salar reluce
 	}
 	else if (Decoration == TEXT("chimneys"))
 	{
 		for (int32 I = 0; I < 4; ++I)
 		{
 			const float S = Random.FRandRange(0.8f, 1.4f);
-			const FVector P = RandomSpot();
+			const FVector P = RandomSpot(18.0f);
 			AddShape(CylinderMesh, P + FVector(0, 0, 70 * S), FVector(0.3f, 0.3f, 1.4f * S), FLinearColor(0.35f, 0.3f, 0.28f), TileComponents);
-			AddEmitter(P + FVector(0, 0, 140 * S + 10), EPuff::Smoke, Random.FRandRange(0.45f, 0.7f), 8.0f);
+			AddEmitter(Tile, P + FVector(0, 0, 140 * S + 10), EPuff::Smoke, Random.FRandRange(0.45f, 0.7f), 8.0f, 150.0f);
 		}
 	}
 	else if (Decoration == TEXT("gears"))
@@ -573,7 +580,7 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 		for (int32 I = 0; I < 3; ++I)
 		{
 			const float S = Random.FRandRange(0.8f, 1.3f);
-			UStaticMeshComponent* Gear = AddShape(CylinderMesh, RandomSpot() + FVector(0, 0, 50 * S), FVector(S, S, 0.15f), FLinearColor(0.75f, 0.55f, 0.2f), TileComponents,
+			UStaticMeshComponent* Gear = AddShape(CylinderMesh, RandomSpot(50.0f * S) + FVector(0, 0, 50 * S), FVector(S, S, 0.15f), FLinearColor(0.75f, 0.55f, 0.2f), TileComponents,
 				FRotator(90.0f, Random.FRandRange(0.0f, 360.0f), 0.0f));
 			// Engranajes vecinos giran en sentidos opuestos; los chicos, más rápido.
 			AddMotion(Gear, EMotion::Spin, Gear->GetRelativeLocation(), (I % 2 == 0 ? 1.0f : -1.0f) * 45.0f / S, 0.0f);
@@ -583,7 +590,7 @@ void AHFBoardActor::AddDecoration(int32 Tile, const FString& Decoration, const F
 	{
 		for (int32 I = 0; I < 4; ++I)
 		{
-			const FVector P = RandomSpot();
+			const FVector P = RandomSpot(50.0f); // la bandera flamea hasta 45 cm del mástil
 			AddShape(CylinderMesh, P + FVector(0, 0, 70), FVector(0.05f, 0.05f, 1.4f), FLinearColor(0.3f, 0.2f, 0.1f), TileComponents);
 			UStaticMeshComponent* Flag = AddShape(CubeMesh, P + FVector(0, 22, 110), FVector(0.03f, 0.45f, 0.6f), Shade(TerrainColor, 1.4f), TileComponents);
 			AddMotion(Flag, EMotion::Flutter, P + FVector(0, 0, 110), 18.0f, WindPhase(P));
@@ -605,13 +612,22 @@ void AHFBoardActor::AddMotion(UStaticMeshComponent* Component, EMotion Kind, con
 	Motions.Add(Motion);
 }
 
-void AHFBoardActor::AddEmitter(const FVector& Origin, EPuff Kind, float Interval, float Spread)
+float AHFBoardActor::DecorationRadius() const
+{
+	// Apotema del hexágono (centro al medio de un lado) menos la separación entre casillas y un margen.
+	return TileRadius * (1.0f - TileGap) * 0.866f * 0.88f;
+}
+
+void AHFBoardActor::AddEmitter(int32 Tile, const FVector& Origin, EPuff Kind, float Interval, float Spread, float Rise)
 {
 	FEmitter Emitter;
 	Emitter.Origin = Origin;
 	Emitter.Kind = Kind;
 	Emitter.Interval = Interval;
-	Emitter.Spread = Spread;
+	Emitter.Spread = FMath::Min(Spread, DecorationRadius());
+	Emitter.TileCenter = TileCenters[Tile];
+	Emitter.Floor = TileHeights[Tile];
+	Emitter.Ceiling = Origin.Z + Rise;
 	Emitter.NextTime = FMath::FRandRange(0.0f, Interval);
 	Emitters.Add(Emitter);
 }
@@ -646,6 +662,9 @@ void AHFBoardActor::SpawnPuff(const FEmitter& Emitter, float Now)
 	Puff.Component = Component;
 	Puff.Location = Emitter.Origin + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0f);
 	Puff.Born = Now;
+	Puff.TileCenter = Emitter.TileCenter;
+	Puff.Ceiling = Emitter.Ceiling;
+	Puff.Floor = Emitter.Floor;
 	FLinearColor Color = FLinearColor::White;
 	switch (Emitter.Kind)
 	{
@@ -658,7 +677,7 @@ void AHFBoardActor::SpawnPuff(const FEmitter& Emitter, float Now)
 		break;
 	case EPuff::Ember:
 		Color = FMath::RandBool() ? FLinearColor(1.0f, 0.35f, 0.02f) : FLinearColor(1.0f, 0.75f, 0.1f);
-		Puff.Velocity = FVector(FMath::FRandRange(-60.0f, 60.0f), FMath::FRandRange(-60.0f, 60.0f), FMath::FRandRange(140.0f, 260.0f));
+		Puff.Velocity = FVector(FMath::FRandRange(-25.0f, 25.0f), FMath::FRandRange(-25.0f, 25.0f), FMath::FRandRange(120.0f, 200.0f));
 		Puff.Life = FMath::FRandRange(0.8f, 1.4f);
 		Puff.StartScale = 0.08f;
 		Puff.EndScale = 0.0f;
@@ -672,7 +691,7 @@ void AHFBoardActor::SpawnPuff(const FEmitter& Emitter, float Now)
 		break;
 	case EPuff::Dust:
 		Color = FLinearColor(0.62f, 0.36f, 0.2f);
-		Puff.Velocity = FVector(WindDirection * 60.0f + FVector2D(FMath::FRandRange(-30.0f, 30.0f), FMath::FRandRange(-30.0f, 30.0f)), FMath::FRandRange(10.0f, 40.0f));
+		Puff.Velocity = FVector(WindDirection * 25.0f + FVector2D(FMath::FRandRange(-20.0f, 20.0f), FMath::FRandRange(-20.0f, 20.0f)), FMath::FRandRange(10.0f, 30.0f));
 		Puff.Life = FMath::FRandRange(1.5f, 2.5f);
 		Puff.StartScale = 0.15f;
 		Puff.EndScale = 0.55f;
@@ -788,6 +807,26 @@ void AHFBoardActor::TickLife(float Now, float DeltaSeconds)
 		}
 		Puff.Location += Puff.Velocity * DeltaSeconds;
 		Puff.Velocity *= FMath::Pow(0.6f, DeltaSeconds); // el aire las frena
+		// Cada partícula queda dentro de su casilla: si llega al borde se queda ahí (el viento la empuja
+		// contra una pared invisible) y si llega al techo o a la tapa de la casilla se apaga rápido.
+		// Las formas miden 100 cm a escala 1: se descuenta su radio para que no asomen por el borde.
+		const float Limit = FMath::Max(0.0f, DecorationRadius() - 50.0f * FMath::Max(Puff.StartScale, Puff.EndScale));
+		const FVector2D FromCenter = FVector2D(Puff.Location) - Puff.TileCenter;
+		if (FromCenter.Size() > Limit)
+		{
+			const FVector2D Clamped = Puff.TileCenter + FromCenter.GetSafeNormal() * Limit;
+			Puff.Location.X = Clamped.X;
+			Puff.Location.Y = Clamped.Y;
+			Puff.Velocity.X = 0.0f;
+			Puff.Velocity.Y = 0.0f;
+		}
+		const bool bAboveCeiling = Puff.Ceiling > Puff.Floor && Puff.Location.Z > Puff.Ceiling;
+		if (bAboveCeiling || Puff.Location.Z < Puff.Floor)
+		{
+			Puff.Location.Z = bAboveCeiling ? Puff.Ceiling : Puff.Floor;
+			Puff.Velocity.Z = 0.0f;
+			Puff.Life = FMath::Min(Puff.Life, (Now - Puff.Born) + 0.25f);
+		}
 		// Al final se achican hasta desaparecer (los materiales son opacos: no se pueden desvanecer).
 		float Scale = FMath::Lerp(Puff.StartScale, Puff.EndScale, Alpha) * FMath::Min(1.0f, (1.0f - Alpha) * 4.0f);
 		if (Puff.StartScale == 0.0f && Puff.EndScale == 0.0f)
