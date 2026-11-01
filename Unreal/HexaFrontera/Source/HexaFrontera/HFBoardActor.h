@@ -197,6 +197,9 @@ private:
 		float Interval = 0.5f;
 		float Spread = 30.0f;
 		float NextTime = 0.0f;
+		FVector2D TileCenter = FVector2D::ZeroVector; // las partículas no salen de esta casilla
+		float Ceiling = 0.0f;                         // ni suben más que esto
+		float Floor = 0.0f;                           // ni bajan de la tapa de la casilla
 	};
 	struct FPuff
 	{
@@ -207,6 +210,9 @@ private:
 		float Life = 1.0f;
 		float StartScale = 0.1f;
 		float EndScale = 0.1f;
+		FVector2D TileCenter = FVector2D::ZeroVector;
+		float Ceiling = 0.0f;
+		float Floor = 0.0f;
 	};
 
 	// Superficie de agua con olas (se recalculan los vértices de la tapa en cada cuadro).
@@ -346,7 +352,9 @@ private:
 	void AddDecoration(int32 Tile, const FString& Decoration, const FString& TerrainId, const FLinearColor& TerrainColor);
 	void ClearComponents(TArray<TObjectPtr<UStaticMeshComponent>>& Components);
 	void AddMotion(UStaticMeshComponent* Component, EMotion Kind, const FVector& Pivot, float Amount, float Phase);
-	void AddEmitter(const FVector& Origin, EPuff Kind, float Interval, float Spread);
+	void AddEmitter(int32 Tile, const FVector& Origin, EPuff Kind, float Interval, float Spread, float Rise);
+	// Radio del círculo que entra en el hexágono de una casilla, con margen: nada decorativo pasa de ahí.
+	float DecorationRadius() const;
 	void SpawnPuff(const FEmitter& Emitter, float Now);
 	void TickLife(float Now, float DeltaSeconds);
 };
